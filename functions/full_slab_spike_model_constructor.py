@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 class linear_slab_spike(nn.Module):
     def __init__(self, p, init_pi_local = 0.45, init_pi_global = 0.5, init_beta_var = 1, init_noise_var = 1,
                 gumbel_softmax_temp = 0.5, gumbel_softmax_hard = False, a= 1.1,b=3.1, init_c= 1.1, init_d = 5.1,
-                q1 = 1.1, q2 = 1.1, init_q3 = 1.1, init_q4 = 1.1):
+                q1 = 1.1, q2 = 1.1, init_q3 = 1.1, init_q4 = 1.1, n_E = 50):
         super(linear_slab_spike, self).__init__()
         self.p = p
         prior_uni = np.sqrt(1/p)
@@ -34,9 +34,10 @@ class linear_slab_spike(nn.Module):
         # gumbel hyper parameters
         self.tau = gumbel_softmax_temp
         self.hard = gumbel_softmax_hard
-        
+        #number of samples for empirical integration
+        self.n_E = n_E
     def get_para_orig_scale(self):
-        return torch.exp(self.beta_log_var), torch.sigmoid(self.logit_pi_local), \
+        return torch.exp(self.log_var_noise),torch.exp(self.beta_log_var), torch.sigmoid(self.logit_pi_local), \
                 torch.exp(self.beta_log_var_prior), \
                 torch.exp(self.log_c), torch.exp(self.log_d),\
                 torch.exp(self.log_q3),torch.exp(self.log_q4)
@@ -44,7 +45,8 @@ class linear_slab_spike(nn.Module):
     def log_data_lh(self, beta, delta, X, y, q3, q4):
         n = X.shape[0]
         est_mean = (beta*delta) @ X.t()+self.bias
-        return -n*0.5*(torch.log(q4)-torch.digamma(q3))-1/(2)*q3/q4*torch.sum(torch.square(y-est_mean))
+        #import pdb;pdb.set_trace()
+        return torch.mean(-n*0.5*(torch.log(q4)-torch.digamma(q3))-1/(2)*q3/q4*torch.sum(torch.square(y-est_mean),dim = 1))
     
     def log_prior_expect_lh(self, pi_local, beta_var, beta_var_prior, c, d, q3, q4):
         # expectation of log pi
@@ -74,11 +76,12 @@ class linear_slab_spike(nn.Module):
     
     def ELBO(self,X, y):
         # get the current parameter after transformation
-        beta_var, pi_local,beta_var_prior,c, d, q3, q4 = self.get_para_orig_scale()
+        noise_var, beta_var, pi_local,beta_var_prior,c, d, q3, q4 = self.get_para_orig_scale()
         # reparameterization
-        beta = self.beta_mu + torch.sqrt(beta_var)*torch.randn((self.p,))
+        #import pdb; pdb.set_trace()
+        beta = self.beta_mu + torch.sqrt(beta_var)*torch.randn((self.n_E,self.p))
         # Gumbel-softmax sampling
-        delta = nn.functional.gumbel_softmax(torch.column_stack( [ self.logit_pi_local, -self.logit_pi_local ] ),dim = 1, tau = self.tau, hard = self.hard)[:,0]
+        delta = nn.functional.gumbel_softmax(torch.stack( [ self.logit_pi_local.expand(self.n_E ,-1), -self.logit_pi_local.expand(self.n_E,-1) ], dim = 2 ),dim = 2, tau = self.tau, hard = self.hard)[:,:,0]
         # ELBO
         ELBO = self.log_data_lh(beta, delta, X, y, q3, q4) + \
             self.log_prior_expect_lh(pi_local, beta_var, beta_var_prior, c, d, q3, q4 ) + \
@@ -107,7 +110,8 @@ class linear_slab_spike(nn.Module):
         # posterior for h
         var_genetic_est = np.mean(est_mean**2, axis = 0) - np.mean(est_mean, axis = 0)**2
         var_genetic_mean = np.mean(var_genetic_est)
-        h_est = var_genetic_est/(var_genetic_est+noise_var_est) # s*1 vector
+        #import pdb; pdb.set_trace()
+        h_est = var_genetic_est/(var_genetic_est+noise_var_poster) # s*1 vector
         mean_h_est = np.mean(h_est)
         upper = np.quantile(h_est, q = 0.975)
         lower = np.quantile(h_est, q = 0.025)
