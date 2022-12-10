@@ -18,7 +18,7 @@ def cust_act(x):
 class linear_slab_spike(nn.Module):
     def __init__(self, p, init_pi_local = 0.45, init_pi_global = 0.5, init_beta_var = 1, init_noise_var = 1,
                 gumbel_softmax_temp = 0.5, gumbel_softmax_hard = False, a1= 1.1,a2=3.1, init_a3= 1.1, init_a4 = 5.1,
-                q1 = 1.1, q2 = 1.1, init_q3 = 1.1, init_q4 = 1.1, n_E = 50, prior_sparsity = False):
+                q1 = 1.1, q2 = 1.1, init_q3 = 1.1, init_q4 = 1.1, n_E = 50, prior_sparsity = False, device = 'cpu'):
         '''Initialize fast variational inference Bayesian slab and spike linear model
         
         Parameters:
@@ -44,12 +44,13 @@ class linear_slab_spike(nn.Module):
         '''
         super(linear_slab_spike, self).__init__()
         # Fixed values in the model
+        self.device = device
         self.p = p #number of features
         prior_uni = np.sqrt(1/p) # initial values for coefficient mean 
-        self.a1 = torch.tensor((a1,))# prior parameters for global pi
-        self.a2 = torch.tensor((a2,))# prior parameters for global pi
-        self.q1 = torch.tensor((q1,))#Priors parameters for noise variance
-        self.q2 = torch.tensor((q2,))#Priors parameters for noise variance
+        self.a1 = torch.tensor((a1,)).to(device)# prior parameters for global pi
+        self.a2 = torch.tensor((a2,)).to(device)# prior parameters for global pi
+        self.q1 = torch.tensor((q1,)).to(device)#Priors parameters for noise variance
+        self.q2 = torch.tensor((q2,)).to(device)#Priors parameters for noise variance
         self.tau = gumbel_softmax_temp# gumbel hyper parameters        
         self.hard = gumbel_softmax_hard# gumbel hyper parameters
         self.n_E = n_E #number of samples for empirical integration
@@ -93,6 +94,7 @@ class linear_slab_spike(nn.Module):
         Expected data likelihood over the approximation posterior
         '''
         n = X.shape[0]
+        #import pdb;pdb.set_trace()
         est_mean = (beta*delta) @ X.t()+self.bias
         #import pdb;pdb.set_trace()
         return torch.mean(-n*0.5*(torch.log(q4)-torch.digamma(q3))-1/(2)*q3/q4*torch.sum(torch.square(y-est_mean),dim = 1))
@@ -173,9 +175,9 @@ class linear_slab_spike(nn.Module):
         noise_var, beta_var, pi_local,beta_var_prior,a3, a4, q3, q4,pi_global = self.get_para_orig_scale()
         # reparameterization
         #import pdb; pdb.set_trace()
-        beta = self.beta_mu + torch.sqrt(beta_var)*torch.randn((self.n_E,self.p))
+        beta = self.beta_mu + torch.sqrt(beta_var)*torch.randn((self.n_E,self.p), device = self.device)
         # Gumbel-softmax sampling
-        delta = nn.functional.gumbel_softmax(torch.stack( [ self.logit_pi_local.expand(self.n_E ,-1), -self.logit_pi_local.expand(self.n_E,-1) ], dim = 2 ),dim = 2, tau = self.tau, hard = self.hard)[:,:,0]
+        delta = (nn.functional.gumbel_softmax(torch.stack( [ self.logit_pi_local.expand(self.n_E ,-1), -self.logit_pi_local.expand(self.n_E,-1) ], dim = 2 ),dim = 2, tau = self.tau, hard = self.hard)[:,:,0])
         # ELBO
         ELBO = self.log_data_lh(beta, delta, X, y, q3, q4) + \
             self.log_prior_expect_lh(pi_local, beta_var, beta_var_prior, a3, a4, q3, q4,pi_global) + \
@@ -197,16 +199,16 @@ class linear_slab_spike(nn.Module):
         A dictionary contains the posterior estimates (lower and upper band)
         A plot for the coefficents
         '''
-        beta_mean = (self.beta_mu.detach()).numpy()
-        beta_std = torch.exp(self.beta_log_var).detach().numpy()
-        pi_local = torch.sigmoid(self.logit_pi_local.detach()).numpy()
+        beta_mean = (self.beta_mu.cpu().detach()).numpy()
+        beta_std = torch.exp(self.beta_log_var).cpu().detach().numpy()
+        pi_local = torch.sigmoid(self.logit_pi_local.cpu().detach()).numpy()
         #import pdb; pdb.set_trace()
         delta = np.random.binomial(n = 1, p = pi_local, size = (num_samples, self.p))
         sample_beta = np.random.normal(loc = beta_mean, scale = beta_std, size = (num_samples, self.p))*delta # num_samples* p
-        est_mean = X.numpy() @ np.transpose(sample_beta) + self.bias.detach().numpy() # a n*num_samples matrix
+        est_mean = X.numpy() @ np.transpose(sample_beta) + self.bias.cpu().detach().numpy() # a n*num_samples matrix
         # Noise variance poseterior parameters
-        q3 = np.exp(self.log_q3.detach().numpy())
-        q4 = np.exp(self.log_q4.detach().numpy())
+        q3 = np.exp(self.log_q3.cpu().detach().numpy())
+        q4 = np.exp(self.log_q4.cpu().detach().numpy())
         # Noise variance posterior
         noise_var_poster = 1/np.random.gamma(q3,1/q4, size = (num_samples,))
         noise_var_est = np.mean(noise_var_poster)
@@ -220,14 +222,14 @@ class linear_slab_spike(nn.Module):
         lower = np.quantile(h_est, q = 0.025)
         if self.prior_sparsity:
             # global pi posterior parameters
-            a3 = torch.exp(self.log_a3).detach().numpy()
-            a4 = torch.exp(self.log_a4).detach().numpy()
+            a3 = torch.exp(self.log_a3).cpu().detach().numpy()
+            a4 = torch.exp(self.log_a4).cpu().detach().numpy()
             global_pi_poster = np.random.beta(a3,a4, size = (num_samples,))
             global_pi_est = np.mean(global_pi_poster)
             global_pi_upper = np.quantile(global_pi_poster, q = 0.975)
             global_pi_lower = np.quantile(global_pi_poster, q = 0.025)
         else:
-            global_pi_est = torch.sigmoid(self.logit_pi_global).detach().numpy()
+            global_pi_est = torch.sigmoid(self.logit_pi_global).cpu().detach().numpy()
             global_pi_upper = global_pi_est
             global_pi_lower = global_pi_est
         if plot and true_beta is not None:
