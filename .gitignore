@@ -6,3 +6,4 @@ dataset/
 .ipynb_checkpoints
 results/
 functions/.DS_Store
+.DS_Store
