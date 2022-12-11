@@ -46,7 +46,7 @@ class linear_slab_spike(nn.Module):
         # Fixed values in the model
         self.device = device
         self.p = p #number of features
-        prior_uni = np.sqrt(1/p) # initial values for coefficient mean 
+        prior_uni = np.sqrt(6/p) # initial values for coefficient mean 
         self.a1 = torch.tensor((a1,)).to(device)# prior parameters for global pi
         self.a2 = torch.tensor((a2,)).to(device)# prior parameters for global pi
         self.q1 = torch.tensor((q1,)).to(device)#Priors parameters for noise variance
@@ -167,9 +167,13 @@ class linear_slab_spike(nn.Module):
         entropy_noise_var = q3+torch.log(q4)+torch.lgamma(q3)-(q3+1)*torch.digamma(q3)
         return entropy1+entropy_global_pi+entropy_noise_var
     
-    def ELBO(self,X, y):
+    def ELBO(self,X, y, B):
         '''
         Caculate the Evidence Lower Bound
+        
+        Parameters:
+        ---------------------
+        B: number of min-batches for one epoch 
         '''
         # get the current parameter after transformation
         noise_var, beta_var, pi_local,beta_var_prior,a3, a4, q3, q4,pi_global = self.get_para_orig_scale()
@@ -180,8 +184,8 @@ class linear_slab_spike(nn.Module):
         delta = (nn.functional.gumbel_softmax(torch.stack( [ self.logit_pi_local.expand(self.n_E ,-1), -self.logit_pi_local.expand(self.n_E,-1) ], dim = 2 ),dim = 2, tau = self.tau, hard = self.hard)[:,:,0])
         # ELBO
         ELBO = self.log_data_lh(beta, delta, X, y, q3, q4) + \
-            self.log_prior_expect_lh(pi_local, beta_var, beta_var_prior, a3, a4, q3, q4,pi_global) + \
-            self.log_entropy(pi_local, a3, a4, q3, q4, pi_global)
+            1/B*self.log_prior_expect_lh(pi_local, beta_var, beta_var_prior, a3, a4, q3, q4,pi_global) + \
+            1/B*self.log_entropy(pi_local, a3, a4, q3, q4, pi_global)
         return ELBO
     
     def inference(self, X, num_samples = 500, plot = False, true_beta = None):
@@ -252,8 +256,8 @@ class linear_slab_spike(nn.Module):
             ax.legend(prop={'size':14})
             fig.set_tight_layout(True)
             plt.show()
-        return {'mean_h_est': mean_h_est, 'h_est_upper': upper, 'h_est_lower': lower, 
-                'mean_var_genetic': var_genetic_mean, 'noise_var': noise_var_est, 
-                'global_pi':global_pi_est, 'global_pi_upper':global_pi_upper, 'global_pi_lower':global_pi_lower
+        return {'mean_h_est': [mean_h_est], 'h_est_upper': [upper], 'h_est_lower': [lower], 
+                'mean_var_genetic': [var_genetic_mean], 'noise_var': [noise_var_est], 
+                'global_pi':[global_pi_est], 'global_pi_upper':[global_pi_upper], 'global_pi_lower':[global_pi_lower]
                }
         
