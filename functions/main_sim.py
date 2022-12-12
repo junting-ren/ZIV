@@ -36,7 +36,7 @@ if __name__ ==  '__main__':
     batch_size_v =[512]
     lr_general_v = [0.05]
     lr_pi_v = [0.5]
-    gumbel_softmax_temp_v = [0.1, 0.5]
+    gumbel_softmax_temp_v = [0.1, 0.5,1]
     gumbel_softmax_hard_v = [True, False]
     param_grid = {'h':h_v, 'n': n_v, 'p': p_v, 'p_causal': p_causal_v , 't': t_v, 
                   'patience':patience_v, 'batch_size':batch_size_v,
