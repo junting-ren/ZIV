@@ -18,6 +18,7 @@ def train_and_infer(model, optimizer, sim_data_loader, lr_scheduler, t, patience
     min_avg_loss = float('inf')
     losses = []
     B = len(sim_data_loader)
+    best_model = None
     for i in range(20000):
         loss_epoch = 0
         for j, (X_batch, y_batch) in enumerate(sim_data_loader):
@@ -42,4 +43,6 @@ def train_and_infer(model, optimizer, sim_data_loader, lr_scheduler, t, patience
                 p_cur += 1
         if p_cur > patience:
             break
+    if best_model is None:
+        best_model = model
     return best_model, best_model.inference(X = X.double(),  num_samples = 1000, plot = plot, true_beta = true_beta)
