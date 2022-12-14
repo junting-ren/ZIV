@@ -27,17 +27,17 @@ file_name = '../results/sim_results'+date+'.csv'
 if __name__ ==  '__main__': 
     df_total = pd.DataFrame()
     n_sim = 2
-    h_v = [0.5,0.8, 0.2]
+    h_v = [0.5,0.8, 0.3]
     n_v = [3565]
     p_v = [102484]
     p_causal_v = [300]
     t_v = [100] #number of moving averages
     patience_v = [50]# patience
     batch_size_v =[512]
-    lr_general_v = [0.05]
-    lr_pi_v = [0.5]
-    gumbel_softmax_temp_v = [0.1, 0.5,1]
-    gumbel_softmax_hard_v = [True, False]
+    lr_general_v = [0.1, 0.05, 0.01, 0.005]
+    lr_pi_v = [0.5,0.1,0.05]
+    gumbel_softmax_temp_v = [1]
+    gumbel_softmax_hard_v = [False]
     param_grid = {'h':h_v, 'n': n_v, 'p': p_v, 'p_causal': p_causal_v , 't': t_v, 
                   'patience':patience_v, 'batch_size':batch_size_v,
                   'lr_general':lr_general_v, 'lr_pi':lr_pi_v, 'gumbel_softmax_temp':gumbel_softmax_temp_v, 
@@ -108,4 +108,4 @@ if __name__ ==  '__main__':
         df_total = pd.concat([df_total,df_])
         df_total.to_csv(file_name, index = False)
     end = time.time()
-    print('Runtime of the program is ' + str(end -start) + ' seconds')
+    print('Runtime of the program is ' + str(end -start) + ' seconds') 

@@ -28,6 +28,10 @@ def train_and_infer(model, optimizer, sim_data_loader, lr_scheduler, t, patience
             loss.backward()
             optimizer.step()
             loss_epoch += loss.item()
+            if np.isnan(loss.item()):
+                return model,  {'mean_h_est': [-1], 'h_est_upper': [-1], 'h_est_lower': [-1], 
+                'mean_var_genetic': [-1], 'noise_var': [-1], 
+                'global_pi':[-1], 'global_pi_upper':[-1], 'global_pi_lower':[-1]}
         losses.append(loss_epoch)
         if i % 1000 == 0:
             lr_scheduler.step()
@@ -45,4 +49,5 @@ def train_and_infer(model, optimizer, sim_data_loader, lr_scheduler, t, patience
             break
     if best_model is None:
         best_model = model
+        ret
     return best_model, best_model.inference(X = X.double(),  num_samples = 1000, plot = plot, true_beta = true_beta)
