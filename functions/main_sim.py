@@ -19,14 +19,14 @@ from training_func import *
 today = date.today()
 date = today.strftime("%d%m%Y")
 real_data_index = True
-G_21 = xr.open_dataset("../dataset/G_21_subset_imputed.nc")
+G_21 = xr.open_dataset("../../L0_VI_Bayesian/dataset/G_21_subset_imputed.nc")
 G_21 = G_21.to_array().values.squeeze(0)
 device = 'cuda'
 
 file_name = '../results/sim_results'+date+'.csv'
 if __name__ ==  '__main__': 
     df_total = pd.DataFrame()
-    n_sim = 2
+    n_sim = 10
     h_v = [0.5,0.8, 0.3]
     n_v = [3565]
     p_v = [102484]
@@ -34,14 +34,15 @@ if __name__ ==  '__main__':
     t_v = [100] #number of moving averages
     patience_v = [50]# patience
     batch_size_v =[512]
-    lr_general_v = [0.1, 0.05, 0.01, 0.005]
-    lr_pi_v = [0.5,0.1,0.05]
-    gumbel_softmax_temp_v = [1]
+    lr_general_v = [0.05]
+    lr_pi_v = [0.5]
+    gumbel_softmax_temp_v = [0.9, 1, 1.1, 1.2]
     gumbel_softmax_hard_v = [False]
+    lr_a_v = [0.05]
     param_grid = {'h':h_v, 'n': n_v, 'p': p_v, 'p_causal': p_causal_v , 't': t_v, 
                   'patience':patience_v, 'batch_size':batch_size_v,
                   'lr_general':lr_general_v, 'lr_pi':lr_pi_v, 'gumbel_softmax_temp':gumbel_softmax_temp_v, 
-                  'gumbel_softmax_hard':gumbel_softmax_hard_v}
+                  'gumbel_softmax_hard':gumbel_softmax_hard_v, 'lr_a':lr_a_v}
     param_grid = ParameterGrid(param_grid)
     start = time.time()
     for param in param_grid:
@@ -57,9 +58,9 @@ if __name__ ==  '__main__':
         lr_pi = param['lr_pi']
         gumbel_softmax_temp = param['gumbel_softmax_temp']
         gumbel_softmax_hard = param['gumbel_softmax_hard']
+        lr_a = param['lr_a']
         df_result = []
-        net_parameters = 'h='+str(h)+'_n='+str(n)+'_p='+str(p)+'_p_causal='+str(p_causal)+'_t='+str(t)+"_patience="+str(patience)+"_batch_size="+str(batch_size)+\
-                        '_lr_general='+str(lr_general)+'_lr_pi='+str(lr_pi)+'_gumbel_softmax_temp='+str(gumbel_softmax_temp)+'_gumbel_softmax_hard='+str(gumbel_softmax_hard)
+        para_df = pd.DataFrame(param, index = [0])
         for i in range(n_sim):
             # permutate real data
             np.random.seed(seed = None)
@@ -87,8 +88,8 @@ if __name__ ==  '__main__':
                 [{'params': model.beta_mu},
                  {'params': model.beta_log_var},
                  {'params': model.logit_pi_local, 'lr': lr_pi},
-                 {'params': model.log_a3},
-                 {'params': model.log_a4},
+                 {'params': model.log_a3, 'lr':lr_a},
+                 {'params': model.log_a4, 'lr':lr_a},
                  {'params': model.log_q3},
                  {'params': model.log_q4},
                  {'params': model.bias},
@@ -100,12 +101,10 @@ if __name__ ==  '__main__':
             lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=0.99)
             _, result_dict = train_and_infer(model = model, optimizer = optimizer, sim_data_loader = sim_data_loader, lr_scheduler = lr_scheduler, t = t, patience = patience, X = X, plot = False, true_beta = true_beta)
             pd_cur = pd.DataFrame.from_dict(result_dict, orient='columns')
-            df_result.append(pd_cur)
-            df_ = pd.concat(df_result)
+            pd_cur = pd.concat([para_df, pd_cur], axis = 1)
             torch.cuda.empty_cache()
             print('finish', end = ' ')
-        df_ = pd.concat([pd.DataFrame([net_parameters]*df_.shape[0]), df_.reset_index()], axis = 1)
-        df_total = pd.concat([df_total,df_])
-        df_total.to_csv(file_name, index = False)
+            df_total = pd.concat([df_total,pd_cur])
+            df_total.to_csv(file_name, index = False)
     end = time.time()
     print('Runtime of the program is ' + str(end -start) + ' seconds') 
