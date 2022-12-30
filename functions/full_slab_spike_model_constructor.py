@@ -16,7 +16,7 @@ def cust_act(x):
 # def cust_act(x):
 #     return (torch.tanh(x)+1)*0.5
 class linear_slab_spike(nn.Module):
-    def __init__(self, p, init_pi_local = 0.45, init_pi_global = 0.5, init_beta_var = 1, init_noise_var = 1,
+    def __init__(self, p, n_total, init_pi_local = 0.45, init_pi_global = 0.5, init_beta_var = 1, init_noise_var = 1,
                 gumbel_softmax_temp = 0.5, gumbel_softmax_hard = False, a1= 1.1,a2=3.1, init_a3= 1.1, init_a4 = 5.1,
                 q1 = 1.1, q2 = 1.1, init_q3 = 1.1, init_q4 = 1.1, n_E = 50, prior_sparsity = False, device = 'cpu'):
         '''Initialize fast variational inference Bayesian slab and spike linear model
@@ -46,6 +46,7 @@ class linear_slab_spike(nn.Module):
         # Fixed values in the model
         self.device = device
         self.p = p #number of features
+        self.n_total = n_total
         prior_uni = np.sqrt(6/p) # initial values for coefficient mean 
         self.a1 = torch.tensor((a1,)).to(device)# prior parameters for global pi
         self.a2 = torch.tensor((a2,)).to(device)# prior parameters for global pi
@@ -175,6 +176,7 @@ class linear_slab_spike(nn.Module):
         ---------------------
         B: number of min-batches for one epoch 
         '''
+        n_batch = X.shape[0]
         # get the current parameter after transformation
         noise_var, beta_var, pi_local,beta_var_prior,a3, a4, q3, q4,pi_global = self.get_para_orig_scale()
         # reparameterization
@@ -184,8 +186,8 @@ class linear_slab_spike(nn.Module):
         delta = (nn.functional.gumbel_softmax(torch.stack( [ self.logit_pi_local.expand(self.n_E ,-1), -self.logit_pi_local.expand(self.n_E,-1) ], dim = 2 ),dim = 2, tau = self.tau, hard = self.hard)[:,:,0])
         # ELBO
         ELBO = self.log_data_lh(beta, delta, X, y, q3, q4) + \
-            1/B*self.log_prior_expect_lh(pi_local, beta_var, beta_var_prior, a3, a4, q3, q4,pi_global) + \
-            1/B*self.log_entropy(pi_local, a3, a4, q3, q4, pi_global)
+            n_batch/self.n_total*self.log_prior_expect_lh(pi_local, beta_var, beta_var_prior, a3, a4, q3, q4,pi_global) + \
+            n_batch/self.n_total*self.log_entropy(pi_local, a3, a4, q3, q4, pi_global)
         return ELBO
     
     def inference(self, X, num_samples = 500, plot = False, true_beta = None):

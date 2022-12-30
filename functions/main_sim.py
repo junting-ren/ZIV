@@ -78,7 +78,8 @@ if __name__ ==  '__main__':
             z, X, Xs, latent_mean, var_genetic, var_total, true_beta, y_star = sim_class.gen_data(seed = None)
             sim_data = Sim_Dataset(X.double().to(device),y_star.double().to(device))
             sim_data_loader = DataLoader(sim_data, batch_size = batch_size)
-            model = linear_slab_spike(p = p, init_pi_local = 0.5, init_pi_global = 0.1, init_beta_var = 2, init_noise_var = 0.1,
+            model = linear_slab_spike(p = p, n_total = n,init_pi_local = 0.5, 
+                                      init_pi_global = 0.1, init_beta_var = 2, init_noise_var = 0.1,
                                      gumbel_softmax_temp = gumbel_softmax_temp, gumbel_softmax_hard = gumbel_softmax_hard, 
                                       a1= 0.1, a2=0.1, init_a3= 0.1, init_a4 = 0.1,
                                       q1 = 1.1, q2 = 1.1, init_q3 = 1.1, init_q4 = 1.1, n_E = 1
