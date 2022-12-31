@@ -84,7 +84,7 @@ if __name__ ==  '__main__':
                                       init_pi_global = 0.1, init_beta_var = 2, init_noise_var = 0.1,
                                      gumbel_softmax_temp = gumbel_softmax_temp, gumbel_softmax_hard = gumbel_softmax_hard, 
                                       a1= 0.1, a2=1, init_a3= 0.1, init_a4 = 0.1,
-                                      q1 = 1.1, q2 = 1.1, init_q3 = 1.1, init_q4 = 1.1, n_E = 1
+                                      b1 = 1.1, b2 = 1.1, init_b3 = 1.1, init_b4 = 1.1, n_E = 1
                                       , prior_sparsity = True, prior_sparsity_beta = prior_sparsity_beta, device = device
                                      ).double().to(device)
             optimizer = torch.optim.Adam(
@@ -93,8 +93,8 @@ if __name__ ==  '__main__':
                  {'params': model.logit_pi_local, 'lr': lr_pi},
                  {'params': model.log_a3, 'lr':lr_a},
                  {'params': model.log_a4, 'lr':lr_a},
-                 {'params': model.log_q3},
-                 {'params': model.log_q4},
+                 {'params': model.log_b3},
+                 {'params': model.log_b4},
                  {'params': model.bias},
                  {'params': model.logit_pi_global, 'lr': lr_pi},
                  {'params': model.beta_log_var_prior},
