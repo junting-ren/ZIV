@@ -27,7 +27,7 @@ file_name = '../results/sim_results'+date+'.csv'
 if __name__ ==  '__main__': 
     df_total = pd.DataFrame()
     n_sim = 10
-    h_v = [0.5,0.8, 0.3]
+    h_v = [0.5,0.7, 0.3]
     n_v = [3565]
     p_v = [102484]
     p_causal_v = [300]
@@ -36,13 +36,14 @@ if __name__ ==  '__main__':
     batch_size_v =[512]
     lr_general_v = [0.05]
     lr_pi_v = [0.5]
-    gumbel_softmax_temp_v = [0.9, 1, 1.1, 1.2]
+    gumbel_softmax_temp_v = [1]
     gumbel_softmax_hard_v = [False]
     lr_a_v = [0.05]
+    prior_sparsity_beta_v = [True, False]
     param_grid = {'h':h_v, 'n': n_v, 'p': p_v, 'p_causal': p_causal_v , 't': t_v, 
                   'patience':patience_v, 'batch_size':batch_size_v,
                   'lr_general':lr_general_v, 'lr_pi':lr_pi_v, 'gumbel_softmax_temp':gumbel_softmax_temp_v, 
-                  'gumbel_softmax_hard':gumbel_softmax_hard_v, 'lr_a':lr_a_v}
+                  'gumbel_softmax_hard':gumbel_softmax_hard_v, 'lr_a':lr_a_v, 'prior_sparsity_beta': prior_sparsity_beta_v}
     param_grid = ParameterGrid(param_grid)
     start = time.time()
     for param in param_grid:
@@ -53,6 +54,7 @@ if __name__ ==  '__main__':
         t = param['t']
         patience = param['patience']
         batch_size = param['batch_size']
+        prior_sparsity_beta = param['prior_sparsity_beta']
         r_batch =  batch_size/n
         lr_general = param['lr_general']
         lr_pi = param['lr_pi']
@@ -81,9 +83,9 @@ if __name__ ==  '__main__':
             model = linear_slab_spike(p = p, n_total = n,init_pi_local = 0.5, 
                                       init_pi_global = 0.1, init_beta_var = 2, init_noise_var = 0.1,
                                      gumbel_softmax_temp = gumbel_softmax_temp, gumbel_softmax_hard = gumbel_softmax_hard, 
-                                      a1= 0.1, a2=0.1, init_a3= 0.1, init_a4 = 0.1,
+                                      a1= 0.1, a2=1, init_a3= 0.1, init_a4 = 0.1,
                                       q1 = 1.1, q2 = 1.1, init_q3 = 1.1, init_q4 = 1.1, n_E = 1
-                                      , prior_sparsity = True, device = device
+                                      , prior_sparsity = True, prior_sparsity_beta = prior_sparsity_beta, device = device
                                      ).double().to(device)
             optimizer = torch.optim.Adam(
                 [{'params': model.beta_mu},
