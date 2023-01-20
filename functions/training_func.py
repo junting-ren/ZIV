@@ -3,15 +3,15 @@ from torch.utils.data import Dataset
 import numpy as np
 class Sim_Dataset(Dataset):
     
-    def __init__(self, X, y):
+    def __init__(self, X, y, device = 'cpu'):
         self.X = X
         self.y = y
-    
+        self.device = device
     def __len__(self):
         return len(self.y)
     
     def __getitem__(self, idx):
-        return self.X[idx,:], self.y[idx]
+        return self.X[idx,:].double().to(self.device), self.y[idx].double().to(self.device)
     
 def train_and_infer(model, optimizer, sim_data_loader, lr_scheduler, t, patience, X, plot = False, true_beta = None, verbose = False):
     p_cur = 0 
