@@ -19,7 +19,7 @@ class linear_slab_spike(nn.Module):
     def __init__(self, p, n_total, init_pi_local = 0.45, init_pi_global = 0.5, init_beta_var = 1, init_noise_var = 1,
                 gumbel_softmax_temp = 0.5, gumbel_softmax_hard = False, a1= 1.1,a2=3.1, init_a3= 1.1, init_a4 = 5.1,
                 b1 = 1.1, b2 = 1.1, init_b3 = 1.1, init_b4 = 1.1, n_E = 50, prior_sparsity = True,
-                 prior_sparsity_beta = False, device = 'cpu'):
+                 prior_sparsity_beta = False, exact_lh = False, device = 'cpu'):
         '''Initialize fast variational inference Bayesian slab and spike linear model
         
         Parameters:
@@ -72,6 +72,7 @@ class linear_slab_spike(nn.Module):
         self.logit_pi_global = nn.Parameter(torch.logit(torch.tensor(init_pi_global))) # global pi on logit scale 
         self.beta_log_var_prior = nn.Parameter(torch.log(torch.tensor(init_beta_var))) # beta prior log variance
         self.log_var_noise = nn.Parameter(torch.log(torch.tensor(init_noise_var))) # linear noise prior variance
+        self.exact_lh = exact_lh
         
     def get_para_orig_scale(self):
         '''Function to calculate the parameters ont he original scale
@@ -81,7 +82,7 @@ class linear_slab_spike(nn.Module):
                 torch.exp(self.log_a3), torch.exp(self.log_a4),\
                 torch.exp(self.log_b3),torch.exp(self.log_b4), cust_act(self.logit_pi_global)
     
-    def log_data_lh(self, beta, delta, X, y, b3, b4):
+    def log_data_lh(self, beta, delta, X, y, b3, b4, beta_var):
         '''Calculate the expected data likelihood over the approximation posterior
         
         Parameters:
@@ -101,7 +102,15 @@ class linear_slab_spike(nn.Module):
         #import pdb;pdb.set_trace()
         est_mean = (beta*delta) @ X.t()+self.bias
         #import pdb;pdb.set_trace()
-        return torch.mean(-n*0.5*(torch.log(b4)-torch.digamma(b3))-1/(2)*b3/b4*torch.sum(torch.square(y-est_mean),dim = 1))
+        if self.exact_lh:
+            mu_2 = beta**2
+            pi_2 = delta**2
+            diff = X**2 @ (-mu_2*pi_2+(mu_2+beta_var)*delta)
+            #diff = 0
+            sum_squares = torch.square(y-est_mean) + diff
+            return -n*0.5*(torch.log(b4)-torch.digamma(b3))-1/(2)*b3/b4*torch.sum(sum_squares)
+        else:
+            return torch.mean(-n*0.5*(torch.log(b4)-torch.digamma(b3))-1/(2)*b3/b4*torch.sum(torch.square(y-est_mean),dim = 1))
     
     def log_prior_expect_lh(self, pi_local, beta_var, beta_var_prior, a3, a4, b3, b4, pi_global):
         '''Calculate the expected data likelihood over the approximation posterior
@@ -187,11 +196,15 @@ class linear_slab_spike(nn.Module):
         noise_var, beta_var, pi_local,beta_var_prior,a3, a4, b3, b4,pi_global = self.get_para_orig_scale()
         # reparameterization
         #import pdb; pdb.set_trace()
-        beta = self.beta_mu + torch.sqrt(beta_var)*torch.randn((self.n_E,self.p), device = self.device)
-        # Gumbel-softmax sampling
-        delta = (nn.functional.gumbel_softmax(torch.stack( [ self.logit_pi_local.expand(self.n_E ,-1), -self.logit_pi_local.expand(self.n_E,-1) ], dim = 2 ),dim = 2, tau = self.tau, hard = self.hard)[:,:,0])
+        if self.exact_lh:
+            beta = self.beta_mu
+            delta = pi_local
+        else:
+            beta = self.beta_mu + torch.sqrt(beta_var)*torch.randn((self.n_E,self.p), device = self.device)
+            # Gumbel-softmax sampling
+            delta = (nn.functional.gumbel_softmax(torch.stack( [ self.logit_pi_local.expand(self.n_E ,-1), -self.logit_pi_local.expand(self.n_E,-1) ], dim = 2 ),dim = 2, tau = self.tau, hard = self.hard)[:,:,0])
         # ELBO
-        ELBO = self.log_data_lh(beta, delta, X, y, b3, b4) + \
+        ELBO = self.log_data_lh(beta, delta, X, y, b3, b4, beta_var) + \
             n_batch/self.n_total*self.log_prior_expect_lh(pi_local, beta_var, beta_var_prior, a3, a4, b3, b4,pi_global) + \
             n_batch/self.n_total*self.log_entropy(pi_local, a3, a4, b3, b4, pi_global)
         return ELBO
