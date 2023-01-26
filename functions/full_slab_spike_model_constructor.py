@@ -209,12 +209,12 @@ class linear_slab_spike(nn.Module):
             n_batch/self.n_total*self.log_entropy(pi_local, a3, a4, b3, b4, pi_global)
         return ELBO
     
-    def inference(self, X, num_samples = 500, plot = False, true_beta = None):
+    def inference(self, est_mean, num_samples = 500, plot = False, true_beta = None):
         '''Obtain the posterior and coefficient plot
         
         Parameters:
         --------------
-        X: the data design matrix: n by p
+        est_mean: the estimate mean for X 
         num_samples: number of samples to draw from the posterior
         plot: whether to plot the coefficient value
         true_beta: the coefficient to compare with
@@ -230,7 +230,7 @@ class linear_slab_spike(nn.Module):
         #import pdb; pdb.set_trace()
         delta = np.random.binomial(n = 1, p = pi_local, size = (num_samples, self.p))
         sample_beta = np.random.normal(loc = beta_mean, scale = beta_std, size = (num_samples, self.p))*delta # num_samples* p
-        est_mean = X.numpy() @ np.transpose(sample_beta) + self.bias.cpu().detach().numpy() # a n*num_samples matrix
+        #est_mean = X.numpy() @ np.transpose(sample_beta) + self.bias.cpu().detach().numpy() # a n*num_samples matrix
         # Noise variance poseterior parameters
         b3 = np.exp(self.log_b3.cpu().detach().numpy())
         b4 = np.exp(self.log_b4.cpu().detach().numpy())
@@ -281,4 +281,34 @@ class linear_slab_spike(nn.Module):
                 'mean_var_genetic': [var_genetic_mean], 'noise_var': [noise_var_est], 
                 'global_pi':[global_pi_est], 'global_pi_upper':[global_pi_upper], 'global_pi_lower':[global_pi_lower]
                }
+    
+    def cal_mean_batch(self, X_batch, sample_beta):
+        '''
+        Calculate the mean prediction for the batch
+        
+        Parameters:
+        -----------------------
+        X_batch: current batch feature matrix
+        sample_beta: num_samples by p 
+        
+        Return:
+        -----------------------
+        A numpy 1D array containing the prediction for the batch
+        '''
+        #import pdb; pdb.set_trace()
+        est_mean = X_batch.cpu().detach().numpy() @ np.transpose(sample_beta) + self.bias.cpu().detach().numpy() # a n_batch*num_samples matrix
+        return est_mean
+        
+    def sample_beta(self, num_samples):
+        '''
+        Return a numpy array for the sample betas matrix num_samples by p 
+        '''
+        #import pdb; pdb.set_trace()
+        beta_mean = (self.beta_mu.cpu().detach()).numpy()
+        beta_std = torch.exp(self.beta_log_var).cpu().detach().numpy()
+        pi_local = torch.sigmoid(self.logit_pi_local.cpu().detach()).numpy()
+        #import pdb; pdb.set_trace()
+        delta = np.random.binomial(n = 1, p = pi_local, size = (num_samples, self.p))
+        sample_beta = np.random.normal(loc = beta_mean, scale = beta_std, size = (num_samples, self.p))*delta # num_samples* p
+        return sample_beta
         
