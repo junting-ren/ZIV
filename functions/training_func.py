@@ -49,5 +49,15 @@ def train_and_infer(model, optimizer, sim_data_loader, lr_scheduler, t, patience
             break
     if best_model is None:
         best_model = model
-        ret
-    return best_model, best_model.inference(X = X.double(),  num_samples = 1000, plot = plot, true_beta = true_beta)
+        return best_model
+    
+    #import pdb; pdb.set_trace()
+    num_samples = 1000
+    sample_beta = best_model.sample_beta(num_samples)
+    est_mean_l = []
+    for j, (X_batch, y_batch) in enumerate(sim_data_loader):
+        batch_mean = best_model.cal_mean_batch(X_batch, sample_beta)
+        est_mean_l.append(batch_mean)
+    #import pdb; pdb.set_trace()
+    est_mean = np.concatenate(est_mean_l)
+    return best_model, best_model.inference(est_mean= est_mean, num_samples = num_samples, plot = plot, true_beta = true_beta)
