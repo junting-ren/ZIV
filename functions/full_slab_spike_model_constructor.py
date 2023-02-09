@@ -204,9 +204,9 @@ class linear_slab_spike(nn.Module):
             # Gumbel-softmax sampling
             delta = (nn.functional.gumbel_softmax(torch.stack( [ self.logit_pi_local.expand(self.n_E ,-1), -self.logit_pi_local.expand(self.n_E,-1) ], dim = 2 ),dim = 2, tau = self.tau, hard = self.hard)[:,:,0])
         # ELBO
-        ELBO = self.log_data_lh(beta, delta, X, y, b3, b4, beta_var) + \
-            n_batch/self.n_total*self.log_prior_expect_lh(pi_local, beta_var, beta_var_prior, a3, a4, b3, b4,pi_global) + \
-            n_batch/self.n_total*self.log_entropy(pi_local, a3, a4, b3, b4, pi_global)
+        ELBO = self.n_total/n_batch*self.log_data_lh(beta, delta, X, y, b3, b4, beta_var) + \
+            self.log_prior_expect_lh(pi_local, beta_var, beta_var_prior, a3, a4, b3, b4,pi_global) + \
+            self.log_entropy(pi_local, a3, a4, b3, b4, pi_global)
         return ELBO
     
     def inference(self, est_mean, num_samples = 500, plot = False, true_beta = None):
