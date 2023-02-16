@@ -142,7 +142,7 @@ class linear_slab_spike(nn.Module):
             lh_1 = torch.sum(expect_lpi*pi_local\
             + expect_l1_pi*(1. - pi_local)) \
             - self.p*0.5*self.beta_log_var_prior \
-            - 0.5*(torch.sum(beta_var)+torch.sum(torch.square(self.beta_mu)))/beta_var_prior
+            - 0.5*(torch.sum(beta_var*pi_local)+torch.sum(torch.square(self.beta_mu)*pi_local)+torch.sum((1-pi_local)*beta_var_prior))/beta_var_prior
             # expected log likelihood of global pi part
             if self.prior_sparsity_beta:
                 lh_global_pi = (self.a1-1)*expect_lpi+(self.a2 - 1)* expect_l1_pi - torch.lgamma(self.a1)-torch.lgamma(self.a2)+torch.lgamma(self.a1+self.a2)
@@ -150,10 +150,10 @@ class linear_slab_spike(nn.Module):
                 lh_global_pi = 0 # since log(1)=0 for uniform
             return lh_1+lh_global_pi+lh_noise_var
         else:
-            lh1 = torch.sum(torch.log(pi_global)*pi_local\
-            + torch.log(1.-pi_global)*(1. - pi_local)) \
+            lh_1 = torch.sum(expect_lpi*pi_local\
+            + expect_l1_pi*(1. - pi_local)) \
             - self.p*0.5*self.beta_log_var_prior \
-            - 0.5*(torch.sum(beta_var)+torch.sum(torch.square(self.beta_mu)))/beta_var_prior
+            - 0.5*(torch.sum(beta_var*pi_local)+torch.sum(torch.square(self.beta_mu)*pi_local)+(1-pi_local)*beta_var_prior)/beta_var_prior
             return lh1+lh_noise_var
     
     def log_entropy(self, pi_local, a3, a4, b3, b4, pi_global):
@@ -173,7 +173,7 @@ class linear_slab_spike(nn.Module):
         The entropy for the approximation posterior
         '''
         entropy1 = -torch.sum(
-            pi_local*torch.log(pi_local)-0.5*self.beta_log_var + (1-pi_local)*torch.log(1-pi_local)
+            pi_local*torch.log(pi_local) + (1-pi_local)*torch.log(1-pi_local)-0.5*pi_local*self.beta_log_var-0.5*(1-pi_local)*self.beta_log_var_prior
         )
         if self.prior_sparsity:
             entropy_global_pi = torch.lgamma(a3)+torch.lgamma(a4) - torch.lgamma(a3+a4) - (a3 - 1)*torch.digamma(a3)\
@@ -200,13 +200,14 @@ class linear_slab_spike(nn.Module):
             beta = self.beta_mu
             delta = pi_local
         else:
-            beta = self.beta_mu + torch.sqrt(beta_var)*torch.randn((self.n_E,self.p), device = self.device)
             # Gumbel-softmax sampling
             delta = (nn.functional.gumbel_softmax(torch.stack( [ self.logit_pi_local.expand(self.n_E ,-1), -self.logit_pi_local.expand(self.n_E,-1) ], dim = 2 ),dim = 2, tau = self.tau, hard = self.hard)[:,:,0])
+            beta = self.beta_mu*delta + torch.sqrt(beta_var*delta+beta_var_prior*(1-delta))*torch.randn((self.n_E,self.p), device = self.device)
+
         # ELBO
-        ELBO = self.n_total/n_batch*self.log_data_lh(beta, delta, X, y, b3, b4, beta_var) + \
-            self.log_prior_expect_lh(pi_local, beta_var, beta_var_prior, a3, a4, b3, b4,pi_global) + \
-            self.log_entropy(pi_local, a3, a4, b3, b4, pi_global)
+        ELBO = self.log_data_lh(beta, delta, X, y, b3, b4, beta_var) + \
+            n_batch/self.n_total*self.log_prior_expect_lh(pi_local, beta_var, beta_var_prior, a3, a4, b3, b4,pi_global) + \
+            n_batch/self.n_total*self.log_entropy(pi_local, a3, a4, b3, b4, pi_global)
         return ELBO
     
     def inference(self, est_mean, num_samples = 500, plot = False, true_beta = None):
@@ -225,11 +226,13 @@ class linear_slab_spike(nn.Module):
         A plot for the coefficents
         '''
         beta_mean = (self.beta_mu.cpu().detach()).numpy()
-        beta_std = torch.exp(self.beta_log_var).cpu().detach().numpy()
+        beta_var = torch.exp(self.beta_log_var).cpu().detach().numpy()
+        beta_prior_var = torch.exp(self.beta_log_var_prior).cpu().detach().numpy()
         pi_local = torch.sigmoid(self.logit_pi_local.cpu().detach()).numpy()
+        beta_plot = beta_mean*pi_local
         #import pdb; pdb.set_trace()
         delta = np.random.binomial(n = 1, p = pi_local, size = (num_samples, self.p))
-        sample_beta = np.random.normal(loc = beta_mean, scale = beta_std, size = (num_samples, self.p))*delta # num_samples* p
+        sample_beta = np.random.normal(loc = beta_mean*delta, scale = np.sqrt(beta_var*delta+beta_prior_var*(1-delta)), size = (num_samples, self.p))*delta # num_samples* p
         #est_mean = X.numpy() @ np.transpose(sample_beta) + self.bias.cpu().detach().numpy() # a n*num_samples matrix
         # Noise variance poseterior parameters
         b3 = np.exp(self.log_b3.cpu().detach().numpy())
@@ -264,7 +267,7 @@ class linear_slab_spike(nn.Module):
                    linewidth = 3, color = "black", label = "ground truth")
             ax.scatter(np.arange(self.p), true_beta, \
                    s = 70, marker = '+', color = "black")
-            ax.plot(np.arange(self.p),  beta_mean, \
+            ax.plot(np.arange(self.p),  beta_plot, \
                        linewidth = 3, color = "red", \
                        label = "linear model with spike and slab prior")
             ax.set_xlim([0,self.p-1])
@@ -303,12 +306,12 @@ class linear_slab_spike(nn.Module):
         '''
         Return a numpy array for the sample betas matrix num_samples by p 
         '''
-        #import pdb; pdb.set_trace()
         beta_mean = (self.beta_mu.cpu().detach()).numpy()
-        beta_std = torch.exp(self.beta_log_var).cpu().detach().numpy()
+        beta_var = torch.exp(self.beta_log_var).cpu().detach().numpy()
+        beta_prior_var = torch.exp(self.beta_log_var_prior).cpu().detach().numpy()
         pi_local = torch.sigmoid(self.logit_pi_local.cpu().detach()).numpy()
         #import pdb; pdb.set_trace()
         delta = np.random.binomial(n = 1, p = pi_local, size = (num_samples, self.p))
-        sample_beta = np.random.normal(loc = beta_mean, scale = beta_std, size = (num_samples, self.p))*delta # num_samples* p
+        sample_beta = np.random.normal(loc = beta_mean*delta, scale = np.sqrt(beta_var*delta+beta_prior_var*(1-delta)), size = (num_samples, self.p))*delta # num_samples* p
         return sample_beta
         

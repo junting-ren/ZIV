@@ -39,7 +39,7 @@ def train_and_infer(model, optimizer, sim_data_loader, lr_scheduler, t, patience
                 print(f'At iteration {i}, the loss is {loss.item()}')
         if i > t:
             cur_avg_loss = np.mean(losses[-t:-1])
-            if cur_avg_loss < min_avg_loss:
+            if cur_avg_loss < min_avg_loss and abs(min_avg_loss-cur_avg_loss)>cur_avg_loss*0.01:
                 min_avg_loss = cur_avg_loss
                 p_cur = 0
                 best_model = copy.deepcopy(model)
@@ -49,7 +49,7 @@ def train_and_infer(model, optimizer, sim_data_loader, lr_scheduler, t, patience
             break
     if best_model is None:
         best_model = model
-        return best_model
+        return best_model, best_model.inference(est_mean= est_mean, num_samples = num_samples, plot = plot, true_beta = true_beta)
     
     #import pdb; pdb.set_trace()
     num_samples = 1000
