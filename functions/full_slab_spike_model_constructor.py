@@ -226,13 +226,13 @@ class linear_slab_spike(nn.Module):
         A plot for the coefficents
         '''
         beta_mean = (self.beta_mu.cpu().detach()).numpy()
-        beta_var = torch.exp(self.beta_log_var).cpu().detach().numpy()
-        beta_prior_var = torch.exp(self.beta_log_var_prior).cpu().detach().numpy()
+        #beta_var = torch.exp(self.beta_log_var).cpu().detach().numpy()
+        #beta_prior_var = torch.exp(self.beta_log_var_prior).cpu().detach().numpy()
         pi_local = torch.sigmoid(self.logit_pi_local.cpu().detach()).numpy()
         beta_plot = beta_mean*pi_local
         #import pdb; pdb.set_trace()
-        delta = np.random.binomial(n = 1, p = pi_local, size = (num_samples, self.p))
-        sample_beta = np.random.normal(loc = beta_mean*delta, scale = np.sqrt(beta_var*delta+beta_prior_var*(1-delta)), size = (num_samples, self.p))*delta # num_samples* p
+        #delta = np.random.binomial(n = 1, p = pi_local, size = (num_samples, self.p))
+        #sample_beta = np.random.normal(loc = beta_mean*delta, scale = np.sqrt(beta_var*delta+beta_prior_var*(1-delta)), size = (num_samples, self.p))*delta # num_samples* p
         #est_mean = X.numpy() @ np.transpose(sample_beta) + self.bias.cpu().detach().numpy() # a n*num_samples matrix
         # Noise variance poseterior parameters
         b3 = np.exp(self.log_b3.cpu().detach().numpy())
