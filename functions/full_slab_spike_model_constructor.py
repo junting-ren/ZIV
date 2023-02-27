@@ -19,7 +19,7 @@ class linear_slab_spike(nn.Module):
     def __init__(self, p, n_total, init_pi_local = 0.45, init_pi_global = 0.5, init_beta_var = 1, init_noise_var = 1,
                 gumbel_softmax_temp = 0.5, gumbel_softmax_hard = False, a1= 1.1,a2=3.1, init_a3= 1.1, init_a4 = 5.1,
                 b1 = 1.1, b2 = 1.1, init_b3 = 1.1, init_b4 = 1.1, n_E = 50, prior_sparsity = True,
-                 prior_sparsity_beta = False, exact_lh = False, device = 'cpu'):
+                 prior_sparsity_beta = False, exact_lh = False, tobit = False, device = 'cpu'):
         '''Initialize fast variational inference Bayesian slab and spike linear model
         
         Parameters:
@@ -49,6 +49,7 @@ class linear_slab_spike(nn.Module):
         self.device = device
         self.p = p #number of features
         self.n_total = n_total
+        self.tobit = tobit
         prior_uni = np.sqrt(6/p) # initial values for coefficient mean 
         self.a1 = torch.tensor((a1,)).to(device)# prior parameters for global pi
         self.a2 = torch.tensor((a2,)).to(device)# prior parameters for global pi
@@ -98,19 +99,50 @@ class linear_slab_spike(nn.Module):
         ----------------------
         Expected data likelihood over the approximation posterior
         '''
+        #import pdb;pdb.set_trace()
         n = X.shape[0]
         #import pdb;pdb.set_trace()
         est_mean = (beta*delta) @ X.t()+self.bias
-        #import pdb;pdb.set_trace()
-        if self.exact_lh:
-            mu_2 = beta**2
-            pi_2 = delta**2
-            diff = X**2 @ (-mu_2*pi_2+(mu_2+beta_var)*delta)
-            #diff = 0
-            sum_squares = torch.square(y-est_mean) + diff
-            return -n*0.5*(torch.log(b4)-torch.digamma(b3))-1/(2)*b3/b4*torch.sum(sum_squares)
+        if self.tobit:
+            index0 = y==0
+            index1 = y!=0
+            n0 = np.sum(index0.cpu().detach().numpy())
+            n1 = np.sum(index1.cpu().detach().numpy())
+            if n0>0:
+                X0 = X[index0,:]
+                y0 = y[index0]
+                est_mean0 = est_mean[index0]
+            if n1>0:
+                X1 = X[index1,:]
+                y1 = y[index1]
+                est_mean1 = est_mean[index1]
+            if self.exact_lh and n1>0:
+                mu_2 = beta**2
+                pi_2 = delta**2
+                diff = X1**2 @ (-mu_2*pi_2+(mu_2+beta_var)*delta)
+                #diff = 0
+                sum_squares = torch.square(y1-est_mean1) + diff
+                l1 = -n1*0.5*(torch.log(b4)-torch.digamma(b3))-1/(2)*b3/b4*torch.sum(sum_squares)
+            elif n1>0:
+                l1 = torch.mean(-n1*0.5*(torch.log(b4)-torch.digamma(b3))-1/(2)*b3/b4*torch.sum(torch.square(y1-est_mean1)))
+            else:
+                l1 = 0
+            if n0>0:
+                sigma = torch.sqrt(torch.distributions.gamma.Gamma(b3, b4).rsample())
+                l2 = torch.sum(torch.special.log_ndtr(-est_mean0/torch.sqrt(b4/(b3+1))))#plug in the mode for the variance
+            else:
+                l2 = 0
+            return l1+l2
         else:
-            return torch.mean(-n*0.5*(torch.log(b4)-torch.digamma(b3))-1/(2)*b3/b4*torch.sum(torch.square(y-est_mean),dim = 1))
+            if self.exact_lh:
+                mu_2 = beta**2
+                pi_2 = delta**2
+                diff = X**2 @ (-mu_2*pi_2+(mu_2+beta_var)*delta)
+                #diff = 0
+                sum_squares = torch.square(y-est_mean) + diff
+                return -n*0.5*(torch.log(b4)-torch.digamma(b3))-1/(2)*b3/b4*torch.sum(sum_squares)
+            else:
+                return torch.mean(-n*0.5*(torch.log(b4)-torch.digamma(b3))-1/(2)*b3/b4*torch.sum(torch.square(y-est_mean)))
     
     def log_prior_expect_lh(self, pi_local, beta_var, beta_var_prior, a3, a4, b3, b4, pi_global):
         '''Calculate the expected data likelihood over the approximation posterior
@@ -201,8 +233,8 @@ class linear_slab_spike(nn.Module):
             delta = pi_local
         else:
             # Gumbel-softmax sampling
-            delta = (nn.functional.gumbel_softmax(torch.stack( [ self.logit_pi_local.expand(self.n_E ,-1), -self.logit_pi_local.expand(self.n_E,-1) ], dim = 2 ),dim = 2, tau = self.tau, hard = self.hard)[:,:,0])
-            beta = self.beta_mu*delta + torch.sqrt(beta_var*delta+beta_var_prior*(1-delta))*torch.randn((self.n_E,self.p), device = self.device)
+            delta = (nn.functional.gumbel_softmax(torch.stack( [ self.logit_pi_local.expand(self.n_E ,-1), -self.logit_pi_local.expand(self.n_E,-1) ], dim = 2 ),dim = 2, tau = self.tau, hard = self.hard)[:,:,0]).squeeze(0)
+            beta = self.beta_mu*delta + torch.sqrt(beta_var*delta+beta_var_prior*(1-delta))*torch.randn((self.n_E,self.p), device = self.device).squeeze(0)
 
         # ELBO
         ELBO = self.log_data_lh(beta, delta, X, y, b3, b4, beta_var) + \
