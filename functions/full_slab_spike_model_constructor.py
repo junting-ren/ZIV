@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import numpy as np
 import matplotlib.pyplot as plt
-
+import math
 # def cust_act(x):
 #     return (x/torch.sqrt(torch.sqrt(1+x**4))+1)*0.5
 def cust_act(x):
@@ -16,7 +16,7 @@ def cust_act(x):
 # def cust_act(x):
 #     return (torch.tanh(x)+1)*0.5
 class linear_slab_spike(nn.Module):
-    def __init__(self, p, n_total, init_pi_local = 0.45, init_pi_global = 0.5, init_beta_var = 1, init_noise_var = 1,
+    def __init__(self, p, n_total, init_pi_local_max = 0.1, init_pi_local_min = 0.0, init_pi_global = 0.5, init_beta_var = 1, init_noise_var = 1,
                 gumbel_softmax_temp = 0.5, gumbel_softmax_hard = False, a1= 1.1,a2=3.1, init_a3= 1.1, init_a4 = 5.1,
                 b1 = 1.1, b2 = 1.1, init_b3 = 1.1, init_b4 = 1.1, n_E = 50, prior_sparsity = True,
                  prior_sparsity_beta = False, exact_lh = False, tobit = False, device = 'cpu'):
@@ -50,7 +50,7 @@ class linear_slab_spike(nn.Module):
         self.p = p #number of features
         self.n_total = n_total
         self.tobit = tobit
-        prior_uni = np.sqrt(6/p) # initial values for coefficient mean 
+        prior_uni = np.sqrt(6/p)/p # initial values for coefficient mean 
         self.a1 = torch.tensor((a1,)).to(device)# prior parameters for global pi
         self.a2 = torch.tensor((a2,)).to(device)# prior parameters for global pi
         self.b1 = torch.tensor((b1,)).to(device)#Priors parameters for noise variance
@@ -63,10 +63,11 @@ class linear_slab_spike(nn.Module):
         # Variational approximation posterior distribution parameters
         self.beta_mu = nn.Parameter(torch.FloatTensor(size = (p,)).uniform_(-prior_uni,prior_uni)) # beta mean:Xavier Uniform Distribution initilization
         self.beta_log_var = nn.Parameter(torch.log(torch.rand((p,)))) # beta log variance: uniform 0,1 initilizaiton
-        self.logit_pi_local = nn.Parameter(torch.logit(torch.FloatTensor(size = (p,)).uniform_(init_pi_local-0.05,init_pi_local+0.05))) # sparsity for each feature, uniform initilized
+        #self.logit_pi_local = nn.Parameter(torch.logit(torch.FloatTensor(size = (p,)).uniform_(init_pi_local-0.05,init_pi_local+0.05))) # sparsity for each feature, uniform initilized
+        self.logit_pi_local = nn.Parameter(torch.logit(torch.FloatTensor(size = (p,)).uniform_(init_pi_local_min,init_pi_local_max))) # sparsity for each feature, uniform initilized
         self.log_a3 = nn.Parameter(torch.log(torch.tensor((init_a3,)))) # prior for global pi beta distribution
         self.log_a4 =  nn.Parameter(torch.log(torch.tensor((init_a4,))))# prior for global pi beta distribution
-        self.log_b3 = nn.Parameter(torch.log(torch.tensor((init_b3,))))# prior for noise variance inverse gamma distribution
+        self.b3 = nn.Parameter(torch.tensor((init_b3,)))# prior for noise variance inverse gamma distribution
         self.log_b4 = nn.Parameter(torch.log(torch.tensor((init_b4,))))# prior for noise variance inverse gamma distribution
         # MLE parameters
         self.bias = nn.Parameter(torch.tensor((1.,)))# Bias
@@ -81,7 +82,7 @@ class linear_slab_spike(nn.Module):
         return torch.exp(self.log_var_noise),torch.exp(self.beta_log_var), cust_act(self.logit_pi_local), \
                 torch.exp(self.beta_log_var_prior), \
                 torch.exp(self.log_a3), torch.exp(self.log_a4),\
-                torch.exp(self.log_b3),torch.exp(self.log_b4), cust_act(self.logit_pi_global)
+                self.b3,torch.exp(self.log_b4), cust_act(self.logit_pi_global)
     
     def log_data_lh(self, beta, delta, X, y, b3, b4, beta_var):
         '''Calculate the expected data likelihood over the approximation posterior
@@ -122,14 +123,22 @@ class linear_slab_spike(nn.Module):
                 diff = X1**2 @ (-mu_2*pi_2+(mu_2+beta_var)*delta)
                 #diff = 0
                 sum_squares = torch.square(y1-est_mean1) + diff
-                l1 = -n1*0.5*(torch.log(b4)-torch.digamma(b3))-1/(2)*b3/b4*torch.sum(sum_squares)
+                l1 = -n1*0.5*b3-1/(2)*torch.exp(-b3+b4/2)*torch.sum(sum_squares)
             elif n1>0:
-                l1 = torch.mean(-n1*0.5*(torch.log(b4)-torch.digamma(b3))-1/(2)*b3/b4*torch.sum(torch.square(y1-est_mean1)))
+                l1 = torch.mean(-n1*0.5*b3-1/(2)*torch.exp(-b3+b4/2)*torch.sum(torch.square(y1-est_mean1)))
             else:
                 l1 = 0
             if n0>0:
-                sigma = torch.sqrt(torch.distributions.gamma.Gamma(b3, b4).rsample())
-                l2 = torch.sum(torch.special.log_ndtr(-est_mean0/torch.sqrt(b4/(b3+1))))#plug in the mode for the variance
+                #sigma = torch.sqrt(torch.distributions.gamma.Gamma(b3, b4).rsample())
+                #l2 = torch.sum(torch.special.log_ndtr(-est_mean0/torch.sqrt(b4/(b3+1))))#plug in the mode for the variance
+                value = -est_mean0
+                scale = torch.sqrt(torch.exp(b3-b4))
+                log_l = torch.log(torch.clamp(0.5 * (1 + torch.erf((value) * scale.reciprocal() / math.sqrt(2))), min = 1e-7))
+                #import pdb; pdb.set_trace()
+                #log_l[torch.isinf(log_l)].clamp(1e-7)
+                l2 = torch.sum(log_l)
+                # if torch.isinf(l2):
+                #     import pdb; pdb.set_trace()
             else:
                 l2 = 0
             return l1+l2
@@ -163,8 +172,9 @@ class linear_slab_spike(nn.Module):
         Expected prior likelihood over the approximation posterior
         '''
         # expected log likelihood of noise variance
-        lh_noise_var = self.b1*torch.log(self.b2)-torch.lgamma(self.b1)\
-        -(self.b1+1)*(torch.log(b4)-torch.digamma(b3)) - self.b2*b3/b4
+        # lh_noise_var = self.b1*torch.log(self.b2)-torch.lgamma(self.b1)\
+        # -(self.b1+1)*(torch.log(b4)-torch.digamma(b3)) - self.b2*b3/b4
+        lh_noise_var = 0
         if self.prior_sparsity:
             # expectation of log pi
             expect_lpi = torch.digamma(a3)-torch.digamma(a3 + a4)
@@ -182,11 +192,9 @@ class linear_slab_spike(nn.Module):
                 lh_global_pi = 0 # since log(1)=0 for uniform
             return lh_1+lh_global_pi+lh_noise_var
         else:
-            lh_1 = torch.sum(expect_lpi*pi_local\
-            + expect_l1_pi*(1. - pi_local)) \
-            - self.p*0.5*self.beta_log_var_prior \
-            - 0.5*(torch.sum(beta_var*pi_local)+torch.sum(torch.square(self.beta_mu)*pi_local)+(1-pi_local)*beta_var_prior)/beta_var_prior
-            return lh1+lh_noise_var
+            lh_1 = - self.p*0.5*self.beta_log_var_prior \
+            - 0.5*(torch.sum(beta_var*pi_local)+torch.sum(torch.square(self.beta_mu)*pi_local)+torch.sum((1-pi_local)*beta_var_prior))/beta_var_prior
+            return lh_1+lh_noise_var
     
     def log_entropy(self, pi_local, a3, a4, b3, b4, pi_global):
         '''Calculate the entropy for the approximation posterior
@@ -212,7 +220,8 @@ class linear_slab_spike(nn.Module):
                                 - (a4 - 1)*torch.digamma(a4)+(a3+a4-2)*torch.digamma(a3+a4)
         else:
             entropy_global_pi = 0
-        entropy_noise_var = b3+torch.log(b4)+torch.lgamma(b3)-(b3+1)*torch.digamma(b3)
+        #entropy_noise_var = b3+torch.log(b4)+torch.lgamma(b3)-(b3+1)*torch.digamma(b3)
+        entropy_noise_var = torch.log(torch.sqrt(b4)*torch.exp(b3+0.5))
         return entropy1+entropy_global_pi+entropy_noise_var
     
     def ELBO(self,X, y, B):
@@ -267,10 +276,10 @@ class linear_slab_spike(nn.Module):
         #sample_beta = np.random.normal(loc = beta_mean*delta, scale = np.sqrt(beta_var*delta+beta_prior_var*(1-delta)), size = (num_samples, self.p))*delta # num_samples* p
         #est_mean = X.numpy() @ np.transpose(sample_beta) + self.bias.cpu().detach().numpy() # a n*num_samples matrix
         # Noise variance poseterior parameters
-        b3 = np.exp(self.log_b3.cpu().detach().numpy())
+        b3 = self.b3.cpu().detach().numpy()
         b4 = np.exp(self.log_b4.cpu().detach().numpy())
         # Noise variance posterior
-        noise_var_poster = 1/np.random.gamma(b3,1/b4, size = (num_samples,))
+        noise_var_poster = np.exp(np.random.normal(b3,np.sqrt(b4), size = (num_samples,)))
         noise_var_est = np.mean(noise_var_poster)
         # posterior for h
         var_genetic_est = np.mean(est_mean**2, axis = 0) - np.mean(est_mean, axis = 0)**2
@@ -281,17 +290,31 @@ class linear_slab_spike(nn.Module):
         upper = np.quantile(h_est, q = 0.975)
         lower = np.quantile(h_est, q = 0.025)
         if self.prior_sparsity:
-            # global pi posterior parameters
+            #global pi posterior parameters
             a3 = torch.exp(self.log_a3).cpu().detach().numpy()
             a4 = torch.exp(self.log_a4).cpu().detach().numpy()
             global_pi_poster = np.random.beta(a3,a4, size = (num_samples,))
             global_pi_est = np.mean(global_pi_poster)
+            global_pi_upper_1 = np.quantile(global_pi_poster, q = 0.975)
+            global_pi_lower_1 = np.quantile(global_pi_poster, q = 0.025)
+            m = np.sum(np.random.binomial(n= 1, p = torch.sigmoid(self.logit_pi_local).detach().cpu().numpy(), size = (num_samples, self.p)), axis = 1)
+            a3 = m+1
+            a4 = self.p-m+1
+            global_pi_poster = np.random.beta(a3,a4)
+            #global_pi_est = np.mean(global_pi_poster)
+            global_pi_upper_2 = np.quantile(global_pi_poster, q = 0.975)
+            global_pi_lower_2 = np.quantile(global_pi_poster, q = 0.025)
+            # combine
+            global_pi_upper = max((global_pi_upper_1,global_pi_upper_2))
+            global_pi_lower = min((global_pi_lower_1,global_pi_lower_2))
+        else:
+            m = np.sum(np.random.binomial(n= 1, p = torch.sigmoid(self.logit_pi_local).detach().cpu().numpy(), size = (num_samples, self.p)), axis = 1)
+            a3 = m+1
+            a4 = self.p-m+1
+            global_pi_poster = np.random.beta(a3,a4)
+            global_pi_est = np.mean(global_pi_poster)
             global_pi_upper = np.quantile(global_pi_poster, q = 0.975)
             global_pi_lower = np.quantile(global_pi_poster, q = 0.025)
-        else:
-            global_pi_est = torch.sigmoid(self.logit_pi_global).cpu().detach().numpy()
-            global_pi_upper = global_pi_est
-            global_pi_lower = global_pi_est
         if plot and true_beta is not None:
             fig = plt.figure(figsize=(16,8), facecolor='white')
             ax = fig.add_subplot(1,1,1)
