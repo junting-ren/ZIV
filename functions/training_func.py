@@ -13,7 +13,9 @@ class Sim_Dataset(Dataset):
     def __getitem__(self, idx):
         return self.X[idx,:].double().to(self.device), self.y[idx].double().to(self.device)
     
-def train_and_infer(model, optimizer, sim_data_loader, lr_scheduler, t, patience, X, plot = False, true_beta = None, verbose = False):
+def train_and_infer(model, optimizer, sim_data_loader, lr_scheduler, t, patience, 
+                    X, plot = False, true_beta = None, verbose = False,lr_schedule_step = 1000
+                   ):
     p_cur = 0 
     min_avg_loss = float('inf')
     losses = []
@@ -33,8 +35,9 @@ def train_and_infer(model, optimizer, sim_data_loader, lr_scheduler, t, patience
                 'mean_var_genetic': [-1], 'noise_var': [-1], 
                 'global_pi':[-1], 'global_pi_upper':[-1], 'global_pi_lower':[-1]}
         losses.append(loss_epoch)
-        if i % 1000 == 0:
+        if i % lr_schedule_step== 0:
             lr_scheduler.step()
+        if i % 1000 == 0:
             if verbose:
                 print(f'At iteration {i}, the loss is {loss.item()}')
         if i > t:
@@ -55,9 +58,15 @@ def train_and_infer(model, optimizer, sim_data_loader, lr_scheduler, t, patience
     num_samples = 4000
     sample_beta = best_model.sample_beta(num_samples)
     est_mean_l = []
+    error_l = []
+    point_est_l = []
     for j, (X_batch, y_batch) in enumerate(sim_data_loader):
-        batch_mean = best_model.cal_mean_batch(X_batch, sample_beta)
+        batch_mean, batch_error, batch_point = best_model.cal_mean_batch(X_batch, sample_beta, y_batch)
         est_mean_l.append(batch_mean)
+        error_l.append(batch_error)
+        point_est_l.append(batch_point)
     #import pdb; pdb.set_trace()
     est_mean = np.concatenate(est_mean_l)
-    return best_model, best_model.inference(est_mean= est_mean, num_samples = num_samples, plot = plot, true_beta = true_beta)
+    error = np.concatenate(error_l)
+    point_est = np.concatenate(point_est_l)
+    return best_model, error, point_est, best_model.inference(est_mean= est_mean, num_samples = num_samples, plot = plot, true_beta = true_beta)
