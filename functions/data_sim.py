@@ -6,7 +6,7 @@ import torch
 #import pyro.distributions as dist
 
 class sim_tobit_data(object):
-    def __init__(self, n, p, p_causal, rho, var, n_matrix, h, scale_lambda = None, Xs = None, beta = None, bias = 0):
+    def __init__(self, n, p, p_causal, rho, var, n_matrix, h, p_confound = 0, scale_lambda = None, Xs = None, beta = None, bias = 0, beta_var =1):
         """
         Initialize the parameters for data simulation process. This simulation process tries to generate different sub-feature matrices 
         where the features within one sub-matrix is correlated but independent with all other sub-matrices. 
@@ -29,8 +29,10 @@ class sim_tobit_data(object):
         self.n = n
         self.p = p
         self.p_causal = p_causal
+        self.p_confound = p_confound
         self.rho = rho
         self.var = var
+        self.beta_var=beta_var
         self.n_matrix = n_matrix
         self.total_p = n_matrix*p
         self.total_p_causal = n_matrix*p_causal
@@ -54,9 +56,12 @@ class sim_tobit_data(object):
             lambda_ = dist.HalfCauchy(scale=self.scale_lambda).sample([self.total_p]).cpu().numpy()
             beta = beta*lambda_
         else:
-            SNP_c_index = np.random.choice(self.total_p,size = self.total_p_causal, replace = False)
+            #import pdb; pdb.set_trace()
+            SNP_c_index = np.random.choice(self.total_p ,size = self.total_p_causal, replace = False)
             beta = np.repeat(0.0,self.total_p)
-            beta[SNP_c_index] = rng.standard_normal(size = self.total_p_causal)
+            beta[SNP_c_index] = rng.standard_normal(size = self.total_p_causal)*self.beta_var**0.5
+            beta_confound = rng.standard_normal(size = self.p_confound)
+            beta =  np.concatenate([beta_confound, beta], axis = 0)
         return beta
     def gen_data(self,seed = None):
         """
@@ -74,7 +79,7 @@ class sim_tobit_data(object):
         if self.beta is None:
             self.beta = self.create_beta(rng)
         if self.Xs is None:
-            Xs = self.create_Xs(self.n, self.p, self.rho, self.var, self.n_matrix)
+            Xs = self.create_Xs(self.n, self.p+self.p_confound, self.rho, self.var, self.n_matrix)
         else:
             Xs = self.Xs
         X = np.concatenate(Xs,axis = 1)
