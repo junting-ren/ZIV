@@ -16,7 +16,7 @@ def cust_act(x):
 # def cust_act(x):
 #     return (torch.tanh(x)+1)*0.5
 class linear_slab_spike(nn.Module):
-    def __init__(self, p, n_total, init_pi_local_max = 0.1, init_pi_local_min = 0.0, init_pi_global = 0.5, init_beta_var = 1, init_noise_var = 1,
+    def __init__(self, p, n_total, p_confound = 0,init_pi_local_max = 0.1, init_pi_local_min = 0.0, init_pi_global = 0.5, init_beta_var = 1, init_noise_var = 1,
                 gumbel_softmax_temp = 0.5, gumbel_softmax_hard = False, a1= 1.1,a2=3.1, init_a3= 1.1, init_a4 = 5.1,
                 b1 = 1.1, b2 = 1.1, init_b3 = 1.1, init_b4 = 1.1, n_E = 50, prior_sparsity = True,
                  prior_sparsity_beta = False, exact_lh = False, tobit = False, device = 'cpu'):
@@ -24,7 +24,8 @@ class linear_slab_spike(nn.Module):
         
         Parameters:
         ------------------------
-        p: number of features, not including the bias
+        p: number of features that needs variable selection, not including the bias
+        p_confound: number of features that does not need variable selection
         init_pi_local: the initial value of sparsity probability for each feature
         init_pi_global:  the initial value of global sparsity probability (MLE), not used when prior_sparsity is True
         init_beta_var: the initial value of feature coefficent variance
@@ -37,8 +38,8 @@ class linear_slab_spike(nn.Module):
         init_a4:posterior beta distribution parameter
         b1: prior inverse gamma distribution parameters for noise varaiance
         b2: prior inverse gamma distribution parameters for noise varaiance
-        init_b3: posterior inverse gamma distribution parameters for noise varaiance
-        init_b4: posterior inverse gamma distribution parameters for noise varaiance
+        init_b3: initial mean for log-normal posterior for noise variance
+        init_b4: initial variance for log-normal posterior for noise variance
         n_E: number of samples for the empirical expectation of the data likelihood
         prior_sparsity: If True, the global sparsity will have a prior or else it will be estimated through Maximum likelihood.
         prior_sparsity_beta: If True, the global sparsity will have a beta prior or else it will be Uniform.
@@ -48,6 +49,7 @@ class linear_slab_spike(nn.Module):
         # Fixed values in the model
         self.device = device
         self.p = p #number of features
+        self.p_confound = p_confound
         self.n_total = n_total
         self.tobit = tobit
         prior_uni = np.sqrt(6/p)/p # initial values for coefficient mean 
@@ -67,9 +69,11 @@ class linear_slab_spike(nn.Module):
         self.logit_pi_local = nn.Parameter(torch.logit(torch.FloatTensor(size = (p,)).uniform_(init_pi_local_min,init_pi_local_max))) # sparsity for each feature, uniform initilized
         self.log_a3 = nn.Parameter(torch.log(torch.tensor((init_a3,)))) # prior for global pi beta distribution
         self.log_a4 =  nn.Parameter(torch.log(torch.tensor((init_a4,))))# prior for global pi beta distribution
-        self.b3 = nn.Parameter(torch.tensor((init_b3,)))# prior for noise variance inverse gamma distribution
-        self.log_b4 = nn.Parameter(torch.log(torch.tensor((init_b4,))))# prior for noise variance inverse gamma distribution
+        self.b3 = nn.Parameter(torch.tensor((init_b3,)))# mean parameter for noise variance's log-normal approximation distribution
+        self.log_b4 = nn.Parameter(torch.log(torch.tensor((init_b4,))))# log variance parameter for noise variance's log-normal approximation distribution
         # MLE parameters
+        if self.p_confound>0:
+            self.beta_confound = nn.Parameter(torch.FloatTensor(size = (p_confound,)).uniform_(-1,1))
         self.bias = nn.Parameter(torch.tensor((1.,)))# Bias
         self.logit_pi_global = nn.Parameter(torch.logit(torch.tensor(init_pi_global))) # global pi on logit scale 
         self.beta_log_var_prior = nn.Parameter(torch.log(torch.tensor(init_beta_var))) # beta prior log variance
@@ -103,7 +107,13 @@ class linear_slab_spike(nn.Module):
         #import pdb;pdb.set_trace()
         n = X.shape[0]
         #import pdb;pdb.set_trace()
-        est_mean = (beta*delta) @ X.t()+self.bias
+        # X matrix should be n by self.p+ self.p_confound dimension
+        if self.p_confound>0:
+            X_conf = X[:,:self.p_confound]
+            X = X[:,self.p_confound:]
+            est_mean = self.beta_confound @ X_conf.t()+(beta*delta) @ X.t()+self.bias
+        else:
+            est_mean = (beta*delta) @ X.t()+self.bias
         if self.tobit:
             index0 = y==0
             index1 = y!=0
@@ -340,7 +350,7 @@ class linear_slab_spike(nn.Module):
                 'global_pi':[global_pi_est], 'global_pi_upper':[global_pi_upper], 'global_pi_lower':[global_pi_lower]
                }
     
-    def cal_mean_batch(self, X_batch, sample_beta):
+    def cal_mean_batch(self, X_batch, sample_beta, y = None):
         '''
         Calculate the mean prediction for the batch
         
@@ -354,8 +364,14 @@ class linear_slab_spike(nn.Module):
         A numpy 1D array containing the prediction for the batch
         '''
         #import pdb; pdb.set_trace()
-        est_mean = X_batch.cpu().detach().numpy() @ np.transpose(sample_beta) + self.bias.cpu().detach().numpy() # a n_batch*num_samples matrix
-        return est_mean
+        if self.p_confound>0:
+            est_mean = np.expand_dims(X_batch[:,:self.p_confound].cpu().detach().numpy() @ np.transpose(self.beta_confound.cpu().detach().numpy()), axis = 1) + X_batch[:,self.p_confound:].cpu().detach().numpy() @ np.transpose(sample_beta) + self.bias.cpu().detach().numpy() # a n_batch*num_samples matrix
+        else:
+            est_mean = X_batch.cpu().detach().numpy() @ np.transpose(sample_beta) + self.bias.cpu().detach().numpy() # a n_batch*num_samples matrix
+        #import pdb; pdb.set_trace()
+        point_est = np.mean(est_mean, axis = 1)
+        error = point_est - y.cpu().detach().numpy()
+        return est_mean, error, point_est
         
     def sample_beta(self, num_samples):
         '''
