@@ -93,14 +93,12 @@ class sim_tobit_data(object):
         #z = tobit_dist(mean = torch.tensor(latent_mean), sigma = torch.tensor(sigma_e)).sample()
         y_star = latent_mean + rng.standard_normal(size = X.shape[0])*sigma_e
         #import pdb;pdb.set_trace()
-        z = torch.tensor(np.where(y_star <= 0, 0,y_star)).float()
-        X, z, y_star = torch.tensor(X).float(), z , torch.tensor(y_star).float()
-        Xs = [torch.from_numpy(item).float() for item in Xs]
+        z = np.where(y_star <= 0, 0,y_star)
         return z, X, Xs, latent_mean, var_genetic, var_total, self.beta, y_star
     
 def show_sim(z, latent_mean, var_total):
     figure, axis = plt.subplots(1, 2)
-    axis[0].hist(z.cpu().numpy(), bins='auto')
+    axis[0].hist(z, bins='auto')
     axis[0].set_title("Zero-inflated outcome")
     axis[1].hist(latent_mean, bins='auto')
     axis[1].set_title("Latent mean")
