@@ -325,6 +325,26 @@ class linear_slab_spike(nn.Module):
             global_pi_est = np.mean(global_pi_poster)
             global_pi_upper = np.quantile(global_pi_poster, q = 0.975)
             global_pi_lower = np.quantile(global_pi_poster, q = 0.025)
+        
+        if true_beta is not None:
+            #import pdb;pdb.set_trace()
+            #Get the sensitivity and FDR using half of the estimated non-zero number
+            n_est_positive = int(global_pi_est*len(pi_local)/2)
+            # p = len(pi_local)
+            # pi_local_sorted = np.sort(pi_local)
+            # sum_p = 0
+            # for i in range(p):
+            #     sum_p += 1 - pi_local_sorted[p-i-1]
+            #     if sum_p/(i+1) > 0.05:
+            #         n_est_positive = i
+            #         break
+            index_est_positive = np.argsort(-np.abs(pi_local))[:n_est_positive]
+            index_actual_positive = np.where(np.abs(true_beta)>0)[0]
+            FDR = np.mean(~np.isin(index_est_positive, index_actual_positive))
+            sensitivity = np.sum(np.isin(index_est_positive, index_actual_positive))/len(index_actual_positive)
+        else:
+            FDR = None
+            sensitivity = None
         if plot and true_beta is not None:
             fig = plt.figure(figsize=(16,8), facecolor='white')
             ax = fig.add_subplot(1,1,1)
@@ -347,7 +367,8 @@ class linear_slab_spike(nn.Module):
             plt.show()
         return {'mean_h_est': [mean_h_est], 'h_est_upper': [upper], 'h_est_lower': [lower], 
                 'mean_var_genetic': [var_genetic_mean], 'noise_var': [noise_var_est], 
-                'global_pi':[global_pi_est], 'global_pi_upper':[global_pi_upper], 'global_pi_lower':[global_pi_lower]
+                'global_pi':[global_pi_est], 'global_pi_upper':[global_pi_upper], 'global_pi_lower':[global_pi_lower],
+                'FDR':FDR, 'sensitivity':sensitivity
                }
     
     def cal_mean_batch(self, X_batch, sample_beta, y = None):
@@ -368,11 +389,21 @@ class linear_slab_spike(nn.Module):
             est_mean = np.expand_dims(X_batch[:,:self.p_confound].cpu().detach().numpy() @ np.transpose(self.beta_confound.cpu().detach().numpy()), axis = 1) + X_batch[:,self.p_confound:].cpu().detach().numpy() @ np.transpose(sample_beta) + self.bias.cpu().detach().numpy() # a n_batch*num_samples matrix
         else:
             est_mean = X_batch.cpu().detach().numpy() @ np.transpose(sample_beta) + self.bias.cpu().detach().numpy() # a n_batch*num_samples matrix
-        #import pdb; pdb.set_trace()
         point_est = np.mean(est_mean, axis = 1)
-        error = point_est - y.cpu().detach().numpy()
+        error = point_est*(point_est>0) - y.cpu().detach().numpy()
         return est_mean, error, point_est
-        
+    
+    def predict(self, X, num_samples = 1000):
+        beta_mean = (self.beta_mu.cpu().detach()).numpy()
+        pi_local = torch.sigmoid(self.logit_pi_local.cpu().detach()).numpy()
+        sample_beta = beta_mean*pi_local
+        #import pdb; pdb.set_trace()
+        if self.p_confound>0:
+            est_mean = np.expand_dims(X[:,:self.p_confound].cpu().detach().numpy() @ np.transpose(self.beta_confound.cpu().detach().numpy()), axis = 1) + X[:,self.p_confound:].cpu().detach().numpy() @ np.transpose(sample_beta) + self.bias.cpu().detach().numpy() # a n_batch*num_samples matrix
+        else:
+            est_mean = X.cpu().detach().numpy() @ np.transpose(sample_beta) + self.bias.cpu().detach().numpy() # a n_batch*num_samples matrix
+        return est_mean
+    
     def sample_beta(self, num_samples):
         '''
         Return a numpy array for the sample betas matrix num_samples by p 
