@@ -38,8 +38,9 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var):
     n, p = X_train.shape
     sim_data = Sim_Dataset(torch.tensor(X_train).float(),torch.tensor(z_train).float(), device = 'cpu')
     sim_data_loader = DataLoader(sim_data, batch_size = batch_size)
-    model = linear_slab_spike(p = p, n_total = n, p_confound = 0, init_pi_local_max = 1.0, init_pi_local_min = 0.0,init_pi_global = 0.5, init_beta_var =1, init_noise_var = 1,
-                             gumbel_softmax_temp = 1, gumbel_softmax_hard = False, 
+    model = linear_slab_spike(p = p, n_total = n, p_confound = 0, init_pi_local_max = 0.05, 
+                              init_pi_local_min = 0.0,init_pi_global = 0.5, init_beta_var =1, init_noise_var = 1,
+                              gumbel_softmax_temp = 1, gumbel_softmax_hard = False, 
                               a1= 0.1, a2=0.1, init_a3= 1.1, init_a4 = 1.1,
                               b1 = 1.1, b2 = 1.1, init_b3 = 10.0, init_b4 = 0.1, n_E = 1
                               , prior_sparsity = True, prior_sparsity_beta = False,exact_lh = True,tobit = True, device = device
@@ -48,8 +49,10 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var):
     lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=0.8)
     t = 100 #number of moving averages
     patience = 100# patience
-    best_model, error, point_est, result_dict = train_and_infer(model = model, optimizer = optimizer, sim_data_loader = sim_data_loader, 
-                                                                lr_scheduler = lr_scheduler, t = t, patience = patience,X = X_train, plot = False, 
+    best_model, error, point_est, result_dict = train_and_infer(model = model, optimizer = optimizer, 
+                                                                sim_data_loader = sim_data_loader, 
+                                                                lr_scheduler = lr_scheduler, t = t, patience = patience,
+                                                                X = X_train, plot = False, 
                                                                 true_beta = true_beta, verbose = False)
     # latent model prediction
     z_pred = best_model.predict(torch.tensor(X_test).float())
@@ -72,7 +75,7 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var):
     result_dict['true_h'] = h
     result_dict['true_pi'] = percent_causal
     result_dict['beta_var'] = beta_var
-    return [z_train,pd.DataFrame(result_dict)]
+    return [z_train,z_test, pd.DataFrame(result_dict)]
 
 def one_run_wrapper(kwargs):
     return one_run(**kwargs)
@@ -113,8 +116,11 @@ class sim_helper(object):
         indices = np.random.permutation(n)
         split = int(n*0.8)
         train_index, test_index = indices[:split], indices[split:]
-        data_save = pd.DataFrame(self.data[train_index,:])
-        data_save.to_csv(os.path.join(self.path, self.image_modality+'_standardized_features.csv'), index = False)
+        # Save the feature matrix
+        data_save_train = pd.DataFrame(self.data[train_index,:])
+        data_save_train.to_csv(os.path.join(self.path, self.image_modality+'_train_standardized_features.csv'), index = False)
+        data_save_test = pd.DataFrame(self.data[test_index,:])
+        data_save_test.to_csv(os.path.join(self.path, self.image_modality+'_test_standardized_features.csv'), index = False)
         #import pdb; pdb.set_trace()
         # setting up the parameter grid
         df_result = []
@@ -123,7 +129,8 @@ class sim_helper(object):
                      }
         param_grid = ParameterGrid(param_grid)
         df_result_l = []
-        z_l = []
+        z_train_l = []
+        z_test_l = []
         for param in param_grid:
             ctx = torch.multiprocessing.get_context('spawn')
             pool_obj = ctx.Pool()
@@ -132,10 +139,12 @@ class sim_helper(object):
             result = pool_obj.map(one_run_wrapper, cur_para)
             pool_obj.close()
             pool_obj.join()
-            df_result_l.extend([x[1] for x in result])
+            df_result_l.extend([x[2] for x in result])
             pd.concat(df_result_l).to_csv(os.path.join(self.path, 'result.csv'), index = False)
-            z_l.extend([x[0] for x in result])
-            pd.DataFrame(z_l).to_csv(os.path.join(self.path, 'z.csv'), index = False)
+            z_train_l.extend([x[0] for x in result])
+            z_test_l.extend([x[1] for x in result])
+            pd.DataFrame(z_train_l).to_csv(os.path.join(self.path, 'z_train.csv'), index = False)
+            pd.DataFrame(z_test_l).to_csv(os.path.join(self.path, 'z_test.csv'), index = False)
             # para_df = pd.DataFrame(np.repeat(df.values,df_.shape[0], axis=0))
             # para_df.columns = df.columns
             # df_ = pd.concat([para_df, df_], axis = 1)
