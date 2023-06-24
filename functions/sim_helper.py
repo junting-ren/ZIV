@@ -38,7 +38,7 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var):
     n, p = X_train.shape
     sim_data = Sim_Dataset(torch.tensor(X_train).float(),torch.tensor(z_train).float(), device = 'cpu')
     sim_data_loader = DataLoader(sim_data, batch_size = batch_size)
-    model = linear_slab_spike(p = p, n_total = n, p_confound = 0, init_pi_local_max = 0.05, 
+    model = linear_slab_spike(p = p, n_total = n, p_confound = 0, init_pi_local_max = 0.2, 
                               init_pi_local_min = 0.0,init_pi_global = 0.5, init_beta_var =1, init_noise_var = 1,
                               gumbel_softmax_temp = 1, gumbel_softmax_hard = False, 
                               a1= 0.1, a2=0.1, init_a3= 1.1, init_a4 = 1.1,
@@ -127,6 +127,7 @@ class sim_helper(object):
         param_grid = {'X': [self.data], 'train_index': [train_index], 'test_index': [test_index],'h':self.heritability_l,
                       'percent_causal': self.percent_causal_l, 'beta_var': self.beta_var_l
                      }
+        #import pdb; pdb.set_trace()
         param_grid = ParameterGrid(param_grid)
         df_result_l = []
         z_train_l = []
