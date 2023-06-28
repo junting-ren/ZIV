@@ -318,7 +318,7 @@ class linear_slab_spike(nn.Module):
             global_pi_upper = max((global_pi_upper_1,global_pi_upper_2))
             global_pi_lower = min((global_pi_lower_1,global_pi_lower_2))
         else:
-            m = np.sum(np.random.binomial(n= 1, p = torch.sigmoid(self.logit_pi_local).detach().cpu().numpy(), size = (num_samples, self.p)), axis = 1)
+            m = np.sum(np.random.binomial(n = 1, p = torch.sigmoid(self.logit_pi_local).detach().cpu().numpy(), size = (num_samples, self.p)), axis = 1)
             a3 = m+1
             a4 = self.p-m+1
             global_pi_poster = np.random.beta(a3,a4)
@@ -341,7 +341,7 @@ class linear_slab_spike(nn.Module):
             index_est_positive = np.argsort(-np.abs(pi_local))[:n_est_positive]
             index_actual_positive = np.where(np.abs(true_beta)>0)[0]
             FDR = np.mean(~np.isin(index_est_positive, index_actual_positive))
-            sensitivity = np.sum(np.isin(index_est_positive, index_actual_positive))/len(index_actual_positive)
+            sensitivity = np.sum(np.isin(index_est_positive, index_actual_positive))/len(index_actual_positive) if len(index_actual_positive)>0 else 1
         else:
             FDR = None
             sensitivity = None
