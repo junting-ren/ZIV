@@ -12,9 +12,10 @@ class experiment(object):
         self.X = X
         self.p = X.shape[1]
     def train(self, step_size, verbose = True, num_samples = 1000, warmup_steps=200):
+        progress_bar = verbose
         kernel = DiscreteHMCGibbs(NUTS(self.model,step_size = step_size, init_strategy  = init_to_median))
         #kernel = HMCGibbs(inner_kernel = NUTS(self.model,step_size = step_size, init_strategy  = init_to_median), gibbs_fn=gibbs_fn, gibbs_sites=["beta"])
-        self.mcmc = MCMC(kernel, num_warmup=warmup_steps, num_samples=num_samples)
+        self.mcmc = MCMC(kernel, num_warmup=warmup_steps, num_samples=num_samples, progress_bar = progress_bar)
         self.mcmc.run(random.PRNGKey(0),jnp.asarray(self.X),jnp.asarray(self.z))
     def cal_heritability(self):
         #import pdb; pdb.set_trace()
