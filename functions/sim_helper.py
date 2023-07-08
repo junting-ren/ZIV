@@ -12,9 +12,19 @@ import pyreadr
 from sklearn.model_selection import ParameterGrid
 import os
 
+import time
 
-def one_run(X, train_index, test_index, h, percent_causal, beta_var):
-    
+from mcmc_linear import experiment, linear_mcmc_model, tobit_mcmc_model
+import jax.numpy as jnp
+
+def one_run(X, train_index, test_index, h, percent_causal, beta_var, compare_mcmc = False, n_sub = None, p_sub = None):
+    # sub sample data
+    if n_sub is not None:
+        X = pd.DataFrame(X).sample(n = n_sub, axis = 0)
+        X = np.array(X)
+    if p_sub is not None:
+        X = pd.DataFrame(X).sample(n = p_sub, axis = 1)
+        X = np.array(X)
     # simulate data
     batch_size = len(train_index)
     n = X.shape[0]
@@ -25,6 +35,11 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var):
                                         n_matrix = 1,h = h, bias = 0, Xs = [X], scale_lambda =None, beta_var= beta_var)
     z, X, Xs, latent_mean, var_genetic, var_total, true_beta, y_star = sim_class.gen_data(seed = None)
     #self.X_train, self.X_test, self.z_train, self.z_test = train_test_split(X, z, test_size=0.2, random_state=42)
+    if n_sub is not None or p_sub is not None:
+        n = X.shape[0]
+        indices = np.random.permutation(n)
+        split = int(n*0.8)
+        train_index, test_index = indices[:split], indices[split:]
     X_train = X[train_index,:]
     X_test = X[test_index, :]
     z_train = z[train_index]
@@ -49,32 +64,66 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var):
     lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=0.8)
     t = 100 #number of moving averages
     patience = 100# patience
+    start = time.time()
     best_model, error, point_est, result_dict = train_and_infer(model = model, optimizer = optimizer, 
                                                                 sim_data_loader = sim_data_loader, 
                                                                 lr_scheduler = lr_scheduler, t = t, patience = patience,
                                                                 X = X_train, plot = False, 
                                                                 true_beta = true_beta, verbose = False)
+    end = time.time()
+    total_time_VI = end - start
     # latent model prediction
     z_pred = best_model.predict(torch.tensor(X_test).float())
     mae = np.mean(np.abs(z_pred*(z_pred>0) - z_test))
     # lasso and ridge prediction
-    reg = LassoCV(cv = 5, alphas = (0.001,0.01,0.1,1,10), max_iter=10000)
-    reg.fit(X_train,z_train)
-    z_pred = reg.predict(X_test)
-    mae_lasso = np.mean(np.abs(z_pred*(z_pred>0)-z_test))
-    # Ridge
-    reg = RidgeCV(cv = 5, alphas = (0.001,0.01,0.1,1,10))
-    reg.fit(X_train,z_train)
-    z_pred = reg.predict(X_test)
-    mae_ridge = np.mean(np.abs(z_pred*(z_pred>0)-z_test))
-    # This should return as a dictionary that contains the outcome and beta; 
-    #the estimate and coverage for heritability, percentage causal, prediction bias in MAE, sensitivity and FDR
-    result_dict['mae_latent'] = mae
-    result_dict['mae_lasso'] = mae_lasso
-    result_dict['mae_ridge'] = mae_ridge
-    result_dict['true_h'] = h
-    result_dict['true_pi'] = percent_causal
-    result_dict['beta_var'] = beta_var
+    if not compare_mcmc:
+        reg = LassoCV(cv = 5, alphas = (0.001,0.01,0.1,1,10), max_iter=10000)
+        reg.fit(X_train,z_train)
+        z_pred = reg.predict(X_test)
+        mae_lasso = np.mean(np.abs(z_pred*(z_pred>0)-z_test))
+        # Ridge
+        reg = RidgeCV(cv = 5, alphas = (0.001,0.01,0.1,1,10))
+        reg.fit(X_train,z_train)
+        z_pred = reg.predict(X_test)
+        mae_ridge = np.mean(np.abs(z_pred*(z_pred>0)-z_test))
+        # This should return as a dictionary that contains the outcome and beta; 
+        #the estimate and coverage for heritability, percentage causal, prediction bias in MAE, sensitivity and FDR
+        result_dict['mae_latent'] = mae
+        result_dict['mae_lasso'] = mae_lasso
+        result_dict['mae_ridge'] = mae_ridge
+        result_dict['true_h'] = h
+        result_dict['true_pi'] = percent_causal
+        result_dict['beta_var'] = beta_var
+    # MCMC model
+    if compare_mcmc:
+        start = time.time()
+        exp = experiment(tobit_mcmc_model, z_train, X_train)
+        exp.train(step_size =1,verbose = False)
+        #import pdb; pdb.set_trace()
+        posterior = exp.mcmc.get_samples()
+        end = time.time()
+        total_time_MCMC = end - start
+        beta = posterior["beta"]* posterior["delta"]
+        g_var = (beta @ jnp.transpose(X) ).var(axis = 1)
+        dat_var = posterior["var_error"]
+        heritability = g_var/(dat_var+g_var)
+        mean_h_mcmc = np.mean(heritability)
+        low_h_mcmc = np.quantile(heritability, 0.025)
+        up_h_mcmc = np.quantile(heritability, 0.975)
+        global_pi_mcmc = posterior['pi']
+        mean_pi_mcmc = np.mean(global_pi_mcmc)
+        low_pi_mcmc = np.quantile(global_pi_mcmc, 0.025)
+        up_pi_mcmc = np.quantile(global_pi_mcmc, 0.975)
+        result_dict['mean_h_mcmc'] = mean_h_mcmc
+        result_dict['low_h_mcmc'] = low_h_mcmc
+        result_dict['up_h_mcmc'] = up_h_mcmc
+        result_dict['global_pi_mcmc'] = mean_pi_mcmc
+        result_dict['low_global_pi_mcmc'] = low_pi_mcmc
+        result_dict['up_global_pi_mcmc'] = up_pi_mcmc
+        result_dict['n'] = n_sub
+        result_dict['p'] = p_sub
+        result_dict['total_time_VI'] = total_time_VI
+        result_dict['total_time_MCMC'] = total_time_MCMC
     return [z_train,z_test, pd.DataFrame(result_dict)]
 
 def one_run_wrapper(kwargs):
@@ -82,7 +131,8 @@ def one_run_wrapper(kwargs):
 
 
 class sim_helper(object):
-    def __init__(self, n_sim, heritability_l, percent_causal_l, beta_var_l, image_modality, random_seed = 1, path = ''):
+    def __init__(self, n_sim, heritability_l, percent_causal_l, beta_var_l, image_modality, 
+                 random_seed = 1, path = '', compare_mcmc = False, n_sub_l = None, p_sub_l = None):
         self.n_sim = n_sim
         self.heritability_l = heritability_l
         self.percent_causal_l = percent_causal_l
@@ -90,7 +140,9 @@ class sim_helper(object):
         self.image_modality = image_modality
         self.random_seed = random_seed
         self.path = path
-        
+        self.compare_mcmc = compare_mcmc
+        self.n_sub_l = n_sub_l
+        self.p_sub_l = p_sub_l
     def load_clean_data(self):
         # save the data into self
         # will use this multiple time
@@ -106,8 +158,6 @@ class sim_helper(object):
         scaler.fit(ABCD_sub)
         ABCD_sub = scaler.transform(ABCD_sub)
         self.data = ABCD_sub
-    
-    
     def full_run(self):
         self.load_clean_data()
         # loop over every parameter 
@@ -125,7 +175,8 @@ class sim_helper(object):
         # setting up the parameter grid
         df_result = []
         param_grid = {'X': [self.data], 'train_index': [train_index], 'test_index': [test_index],'h':self.heritability_l,
-                      'percent_causal': self.percent_causal_l, 'beta_var': self.beta_var_l
+                      'percent_causal': self.percent_causal_l, 'beta_var': self.beta_var_l, 'compare_mcmc':[self.compare_mcmc],
+                      'n_sub':self.n_sub_l,'p_sub':self.p_sub_l
                      }
         #import pdb; pdb.set_trace()
         param_grid = ParameterGrid(param_grid)
@@ -137,6 +188,8 @@ class sim_helper(object):
             pool_obj = ctx.Pool()
             # pool_obj = multiprocessing.Pool()
             cur_para = (self.n_sim*(param,))
+            #import pdb; pdb.set_trace()
+            #one_run_wrapper(param)
             result = pool_obj.map(one_run_wrapper, cur_para)
             pool_obj.close()
             pool_obj.join()
