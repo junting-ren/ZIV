@@ -91,8 +91,6 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var, compare_mcm
         result_dict['mae_latent'] = mae
         result_dict['mae_lasso'] = mae_lasso
         result_dict['mae_ridge'] = mae_ridge
-        result_dict['true_h'] = h
-        result_dict['true_pi'] = percent_causal
         result_dict['beta_var'] = beta_var
     # MCMC model
     if compare_mcmc:
@@ -124,6 +122,8 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var, compare_mcm
         result_dict['p'] = p_sub
         result_dict['total_time_VI'] = total_time_VI
         result_dict['total_time_MCMC'] = total_time_MCMC
+    result_dict['true_h'] = h
+    result_dict['true_pi'] = percent_causal
     return [z_train,z_test, pd.DataFrame(result_dict)]
 
 def one_run_wrapper(kwargs):
