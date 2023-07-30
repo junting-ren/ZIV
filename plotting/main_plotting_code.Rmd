@@ -9,6 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)  
 library(tidyverse)
 library(ggplot2)
+library(patchwork)
 ```
 
 
@@ -27,7 +28,7 @@ sim_result
 ```{r}
 x_label = 'True FVE'
 legend_label = 'True % Causal'
-sim_result %>% 
+p1 = sim_result %>% 
   ggplot(aes(y = sensitivity, x = factor(true_h), color = factor(true_pi*100))) + 
   geom_boxplot()+
   xlab(x_label)+
@@ -36,7 +37,7 @@ sim_result %>%
   theme_light()+
   theme(legend.position = 'bottom')
 
-sim_result %>% 
+p2 = sim_result %>% 
   ggplot(aes(y = FDR, x = factor(true_h), color = factor(true_pi*100))) + 
   geom_boxplot()+
   xlab(x_label)+
@@ -44,6 +45,9 @@ sim_result %>%
   guides(color=guide_legend(title=legend_label), )+
   theme_light()+
   theme(legend.position = 'bottom')
+plot_sen_FDR = p1 + p2 + plot_layout(guides = 'collect') & theme(legend.position = 'bottom')
+plot_sen_FDR
+ggsave('sen_FDR_sim.png', width = 10, height = 8)
 ```
 
 ## Estimation of FVE and coverage
@@ -151,20 +155,31 @@ tab_sim
 # Supporting simulation comparing VI and MCMC
 ```{r}
 sim_result_comparison = read_csv('../simulation_result_compare_mcmc/result_desktop_2.csv')
+sim_result_comparison
 ```
+
 ```{r}
-sim_result_comparison %>% 
+colnames(sim_result_comparison)
+```
+
+```{r}
+sim_result_comparison %>% group_by(p,n) %>% count()
+```
+
+```{r}
+p1 = sim_result_comparison %>% 
   rename(VI = total_time_VI,
          MCMC = total_time_MCMC
          ) %>% 
   pivot_longer(cols = c(VI, MCMC), names_to = 'Model', values_to = 'Time') %>% 
-  ggplot(aes(x = Model, y = log(Time), color = factor(p))) + geom_boxplot()
-```
+  ggplot(aes(x = Model, y = log(Time), color = factor(p))) + geom_boxplot()+
+  xlab('Model')+
+  ylab('Log(Seconds)')+
+  guides(color=guide_legend(title='Feature #'))+
+  theme_light()+
+  theme(legend.position = 'bottom')
 
-```{r}
-x_label = 'True FVE'
-legend_label = 'Model'
-sim_result_comparison %>% 
+p2 = sim_result_comparison %>% 
   mutate(true_h = 0.5, true_pi = 0.1) %>%  # for this specific simulation 
   rename(VI = mean_h_est, MCMC = mean_h_mcmc) %>% 
   pivot_longer(cols = c(VI, MCMC), names_to = 'Model', values_to = 'Estimated_FVE') %>% 
@@ -172,13 +187,17 @@ sim_result_comparison %>%
   geom_boxplot()+
   # facet_grid(.~factor(true_pi), labeller = label_both)+
   #geom_point(aes(x = true_FVE, y = Coverage, color = Type), data = cover_df)+
-  xlab(x_label)+
+  xlab('Modle')+
   ylab('Estimated FVE')+
-  guides(color=guide_legend(title=legend_label))+
+  guides(color=guide_legend(title='Feature #'))+
   theme_light()+
   theme(legend.position = 'bottom')+
   scale_y_continuous(breaks = c(0, 0.25, 0.5, 0.8,1), limits = c(0,1))
+plot_compare_model = p1 + p2 + plot_layout(guides = 'collect') & theme(legend.position = 'bottom')
+plot_compare_model
+ggsave('compare_MCMC.png', width = 10, height = 8)
 ```
+
 
 
 ```{r}
