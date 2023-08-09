@@ -1,0 +1,317 @@
+---
+title: "Plotting for ZIV: simulation and application"
+author: "Junting Ren"
+date: "2023-07-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)  
+library(tidyverse)
+library(ggplot2)
+library(patchwork)
+```
+
+
+# Main simulation to evaluate algorithm validality
+```{r}
+sim_result = read_csv('../simulation_result/result.csv')
+chun_result = read_csv('../simulation_result/chun_results.csv')
+sim_result = bind_cols(sim_result,chun_result)
+```
+```{r}
+sim_result
+```
+
+
+## Sensitivity and False Discovery rate for different FVE and causal feature percentage
+```{r}
+x_label = 'True FVE'
+legend_label = 'True % Causal'
+p1 = sim_result %>% 
+  ggplot(aes(y = sensitivity, x = factor(true_h), color = factor(true_pi*100))) + 
+  geom_boxplot()+
+  xlab(x_label)+
+  ylab('Sensitivity')+
+  guides(color=guide_legend(title=legend_label))+
+  theme_light()+
+  theme(legend.position = 'bottom')
+
+p2 = sim_result %>% 
+  ggplot(aes(y = FDR, x = factor(true_h), color = factor(true_pi*100))) + 
+  geom_boxplot()+
+  xlab(x_label)+
+  ylab('False Discovery Rate')+
+  guides(color=guide_legend(title=legend_label), )+
+  theme_light()+
+  theme(legend.position = 'bottom')
+plot_sen_FDR = p1 + p2 + plot_layout(guides = 'collect') & theme(legend.position = 'bottom')
+plot_sen_FDR
+ggsave('sen_FDR_sim.png', width = 10, height = 8)
+```
+
+## Estimation of FVE and coverage
+```{r}
+# Plotting
+x_label = 'True FVE'
+legend_label = 'Model'
+sim_result %>% 
+  rename(VI = mean_h_est, GCTA = h2) %>% 
+  pivot_longer(cols = c(VI, GCTA), names_to = 'Model', values_to = 'Estimated_FVE') %>% 
+  ggplot(aes(y = Estimated_FVE, x = factor(true_h), color = Model)) +
+  geom_boxplot()+
+  # facet_grid(.~factor(true_pi), labeller = label_both)+
+  #geom_point(aes(x = true_FVE, y = Coverage, color = Type), data = cover_df)+
+  xlab(x_label)+
+  ylab('Estimated FVE')+
+  guides(color=guide_legend(title=legend_label))+
+  theme_light()+
+  theme(legend.position = 'bottom')+
+  scale_y_continuous(breaks = c(0, 0.25, 0.5, 0.8,1), limits = c(0,1))
+```
+
+## Global pi estimation plot
+```{r}
+# Plotting
+x_label = 'True causal percentage'
+legend_label = 'True FVE'
+sim_result %>% 
+  ggplot(aes(y = log(global_pi), 
+             x = factor(format(round(log(true_pi), 2), nsmall = 2), levels = c('-5.30', '')), 
+             color = factor(true_h))) +
+  geom_boxplot()+
+  # facet_grid(.~factor(true_pi), labeller = label_both)+
+  #geom_point(aes(x = true_FVE, y = Coverage, color = Type), data = cover_df)+
+  xlab(x_label)+
+  ylab('Estimated causal percentage')+
+  guides(color=guide_legend(title=legend_label))+
+  theme_light()+
+  theme(legend.position = 'bottom')+
+  scale_y_continuous(breaks = round(c(-6, log(c(0.005, 0.01, 0.05, 0.1))), 2), limits = c(-6, log(0.1)))
+```
+
+
+## MAE plot
+```{r}
+x_label = 'True FVE'
+legend_label = 'Model'
+temp1 = sim_result %>% 
+  rename(mae_VI = mae_latent, mae_GCTA = mae) %>% 
+  group_by(true_h) %>% 
+  summarise(VI = mean(mae_VI), GCTA = mean(mae_GCTA), 
+            Lasso = mean(mae_lasso), Ridge = mean(mae_ridge)) %>% 
+  pivot_longer(cols = VI:Ridge, names_to = 'Model', values_to = 'MAE')
+temp2 = sim_result %>% 
+  rename(mae_VI = mae_latent, mae_GCTA = mae) %>% 
+  group_by(true_h) %>% 
+  summarise(VI = sd(mae_VI), GCTA = sd(mae_GCTA), 
+            Lasso = sd(mae_lasso), Ridge = sd(mae_ridge), 
+            ) %>% 
+  pivot_longer(cols = VI:Ridge, names_to = 'Model', values_to = 'SD')
+
+
+left_join(temp1, temp2, by = c('true_h', 'Model')) %>% 
+  ggplot(aes(y = MAE, x = factor(true_h), fill = Model)) +
+  geom_bar(stat = 'identity',position = position_dodge())+
+  geom_errorbar(aes(ymin=MAE-SD, ymax=MAE+SD), width=.2,
+                 position=position_dodge(.9)) +
+  xlab(x_label)+
+  ylab('MAE')+
+  guides(color=guide_legend(title=legend_label))+
+  theme_light()+
+  theme(legend.position = 'bottom')
+```
+
+
+
+## Table for the simulation result
+The latex table is produced in jupyter notebook in Python
+```{r}
+
+library(xtable)
+# Coverage rate data
+tab_sim = sim_result %>% 
+  mutate(cover_FVE = ifelse(h_est_upper > true_h & h_est_lower < true_h, 1, 0),
+         cover_pi = ifelse(global_pi_upper > true_pi & global_pi_lower < true_pi, 1, 0)
+         ) %>% 
+  group_by(true_h, true_pi) %>% 
+  summarise(FVE = mean(mean_h_est),
+            cover_FVE = mean(cover_FVE), 
+            FVE_GCTA = mean(h2),
+            percent_casual = mean(global_pi),
+            cover_pi = mean(cover_pi),
+            MAE_VI = mean(mae_latent),
+            MAE_GCTA = mean(mae),
+            MAE_lasso = mean(mae_lasso),
+            MAE_ridge = mean(mae_ridge)
+            ) %>% 
+  rename(true_FVE = true_h,
+         true_causal_per = true_pi
+         ) %>% 
+  group_by(true_FVE, true_causal_per)
+tab_sim
+```
+
+# Supporting simulation comparing VI and MCMC
+```{r}
+sim_result_comparison = read_csv('../simulation_result_compare_mcmc/result_desktop_2.csv')
+sim_result_comparison
+```
+
+```{r}
+colnames(sim_result_comparison)
+```
+
+```{r}
+sim_result_comparison %>% group_by(p,n) %>% count()
+```
+
+```{r}
+p1 = sim_result_comparison %>% 
+  rename(VI = total_time_VI,
+         MCMC = total_time_MCMC
+         ) %>% 
+  pivot_longer(cols = c(VI, MCMC), names_to = 'Model', values_to = 'Time') %>% 
+  ggplot(aes(x = Model, y = log(Time), color = factor(p))) + geom_boxplot()+
+  xlab('Model')+
+  ylab('Log(Seconds)')+
+  guides(color=guide_legend(title='Feature #'))+
+  theme_light()+
+  theme(legend.position = 'bottom')
+
+p2 = sim_result_comparison %>% 
+  mutate(true_h = 0.5, true_pi = 0.1) %>%  # for this specific simulation 
+  rename(VI = mean_h_est, MCMC = mean_h_mcmc) %>% 
+  pivot_longer(cols = c(VI, MCMC), names_to = 'Model', values_to = 'Estimated_FVE') %>% 
+  ggplot(aes(y = Estimated_FVE, x = Model, color = factor(p))) +
+  geom_boxplot()+
+  # facet_grid(.~factor(true_pi), labeller = label_both)+
+  #geom_point(aes(x = true_FVE, y = Coverage, color = Type), data = cover_df)+
+  xlab('Modle')+
+  ylab('Estimated FVE')+
+  guides(color=guide_legend(title='Feature #'))+
+  theme_light()+
+  theme(legend.position = 'bottom')+
+  scale_y_continuous(breaks = c(0, 0.25, 0.5, 0.8,1), limits = c(0,1))
+plot_compare_model = p1 + p2 + plot_layout(guides = 'collect') & theme(legend.position = 'bottom')
+plot_compare_model
+ggsave('compare_MCMC.png', width = 10, height = 8)
+```
+
+
+
+```{r}
+sim_result_comparison %>% 
+  mutate(true_h = 0.5, true_pi = 0.1) %>%  # for this specific simulation 
+  mutate(cover_FVE_VI = ifelse(h_est_upper > true_h & h_est_lower < true_h, 1, 0),
+         cover_pi_VI = ifelse(global_pi_upper > true_pi & global_pi_lower < true_pi, 1, 0),
+         cover_FVE_MCMC = ifelse(up_h_mcmc > true_h & low_h_mcmc < true_h, 1, 0),
+         cover_pi_MCMC = ifelse(up_global_pi_mcmc > true_pi & low_global_pi_mcmc < true_pi, 1, 0)
+         ) %>% 
+  group_by(n,p,true_h, true_pi) %>% 
+  summarise(FVE_VI = mean(mean_h_est),
+            cover_FVE_VI = mean(cover_FVE_VI), 
+            percent_casual_VI = mean(global_pi),
+            cover_pi_VI = mean(cover_pi_VI),
+            FVE_MCMC = mean(mean_h_mcmc),
+            cover_FVE_MCMC = mean(cover_FVE_MCMC), 
+            percent_casual_MCMC = mean(global_pi_mcmc),
+            cover_pi_MCMC = mean(cover_pi_MCMC),
+            ) %>% 
+  rename(true_FVE = true_h,
+         true_causal_per = true_pi
+         ) 
+```
+
+# Data application plotting
+```{r}
+temp = read_csv('../application/ABCD_h_sparsity.csv')
+unique(temp$outcome)
+```
+
+```{r}
+app_data = read_csv('../application/ABCD_h_sparsity.csv') %>% 
+  mutate(
+    modality = case_when(
+      modality == 'rsmri_list' ~ 'Resting state MRI',
+      modality == 'tfmri_list' ~ 'Task functional MRI',
+      modality == 'smri_list' ~ 'Structural MRI',
+      modality == 'dti_list' ~ 'Diffusion tensor images',
+      modality == 'rsi_list' ~ 'Restricted spectrum images'),
+    outcome = case_when(
+      outcome == 'cbcl_scr_syn_totprob_r' ~ 'Total synd',
+      outcome == 'cbcl_scr_syn_internal_t' ~ 'Internal synd',
+      outcome == 'cbcl_scr_syn_external_t' ~ 'External synd',
+      
+      outcome == 'cbcl_scr_syn_thought_t' ~ 'Thought synd',
+      outcome == 'cbcl_scr_syn_social_t' ~ 'Social synd',
+      outcome == 'cbcl_scr_syn_somatic_t' ~ 'Somatic synd',
+      outcome == 'cbcl_scr_syn_rulebreak_t' ~ 'RuleBreak synd',
+      outcome == 'cbcl_scr_syn_attention_t' ~ 'Attention synd',
+      outcome == 'cbcl_scr_syn_anxdep_t' ~ 'Anxiety synd',
+      outcome == 'cbcl_scr_syn_aggressive_t' ~ 'Aggressive synd',
+      outcome == 'cbcl_scr_syn_withdep_t' ~ 'Withdrawal synd',
+      
+      outcome == 'cbcl_scr_dsm5_somaticpr_t' ~ 'Somatic DSM5',
+      outcome == 'cbcl_scr_dsm5_opposit_t' ~ 'Oppositional DSM5',
+      outcome == 'cbcl_scr_dsm5_conduct_t' ~ 'Conduct DSM5',
+      outcome == 'cbcl_scr_dsm5_anxdisord_t' ~ 'Anxiety DSM5',
+      outcome == 'cbcl_scr_dsm5_adhd_t' ~ 'ADHD DSM5',
+      outcome == 'cbcl_scr_dsm5_depress_t' ~ 'Depress DSM5',
+    )
+    
+         ) %>% 
+  mutate(outcome = factor(outcome, 
+                          levels = c(
+                            'Total synd', 'Internal synd','External synd',
+                            
+                            'Thought synd',
+                            'Social synd',
+                            'Somatic synd',
+                            'RuleBreak synd',
+                            'Attention synd',
+                            'Anxiety synd',
+                            'Aggressive synd',
+                            'Withdrawal synd',
+                            
+                            'Somatic DSM5',
+                            'Oppositional DSM5',
+                            'Conduct DSM5',
+                            'Anxiety DSM5',
+                            'ADHD DSM5',
+                            'Depress DSM5'
+                          )
+                          )
+         )
+
+```
+
+```{r}
+png(filename="FVE_app.png",units="in", width=8, height=8, res =300)
+app_data %>% 
+  ggplot(aes(y = outcome, color = modality)) +
+  geom_point(aes(x = mean_h_est),position=position_dodge(width = 1))+
+  geom_linerange(aes(xmin = h_est_lower, xmax = h_est_upper),position=position_dodge(width = 1))+
+  xlab('FVE')+
+  theme_light()+
+  theme(axis.text.y = element_text(color = 
+                                     c(rep('darkgreen', 3), rep('darkred',8), rep('darkblue',6))
+                                     )
+        )
+knitr::include_graphics("FVE_app.png")
+```
+
+```{r}
+png(filename="pi_app.png",units="in", width=8, height=8, res = 300)
+app_data %>% 
+  ggplot(aes(y = outcome, color = modality)) +
+  geom_point(aes(x = global_pi),position=position_dodge(width = 1))+
+  geom_linerange(aes(xmin = global_pi_lower, xmax = global_pi_upper),position=position_dodge(width = 1))+
+  xlab('Percent Causal')+
+  theme_light()+
+  theme(axis.text.y = element_text(color = 
+                                     c(rep('darkgreen', 3), rep('darkred',8), rep('darkblue',6))
+                                     )
+        )
+knitr::include_graphics("pi_app.png")
+```
