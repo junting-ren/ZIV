@@ -20,7 +20,7 @@ class sim_tobit_data(object):
         rho: correlation parameter for AR1 correlation matrix
         var: variance for the correlation matrix assuming each feature has the same variance
         n_matrix: number of sub-feature matrix to generate
-        h: the total heritability
+        h: the specified fraction of variance explained
         scale_lambda: default to None, if not None, we generate beta with a horse shoe prior , or else it is a 
         Xs: defaults to None. If not None, a list for sub-feature matrices (real SNP)
         beta: defaults to None. If not None, a vector of values for the betas
@@ -41,6 +41,7 @@ class sim_tobit_data(object):
         self.h = h
         self.bias = bias
         self.Xs = Xs
+        
     def create_Xs(self, n, p, rho, var, n_matrix):
         exponential = np.abs(np.array(np.repeat(range(0,p),p)).reshape(p,p) - np.array(range(0,p)))
         cov = rho**exponential*var
@@ -49,6 +50,7 @@ class sim_tobit_data(object):
         for i in range(n_matrix):
             Xs_list.append(np.random.multivariate_normal(np.repeat(0,p), cov = cov, size = n))
         return Xs_list
+    
     def create_beta(self, rng):
         # TODO: When Xs is not None, this is not taken care of in this version
         if self.scale_lambda is not None:
@@ -63,6 +65,7 @@ class sim_tobit_data(object):
             beta_confound = rng.standard_normal(size = self.p_confound)
             beta =  np.concatenate([beta_confound, beta], axis = 0)
         return beta
+    
     def gen_data(self,seed = None):
         """
         
@@ -106,7 +109,7 @@ def show_sim(z, latent_mean, var_total):
     var_genetic = np.mean(latent_mean**2) - np.mean(latent_mean)**2
     h = var_genetic/var_total
     print('------------------------------------')
-    print('genetic variance is ' + str(var_genetic))
+    print('Feature variance is ' + str(var_genetic))
     print('total variance is'+ str(var_total))
-    print('heritability is ' + str(h))
+    print('Fraction of variance explained is ' + str(h))
     print('------------------------------------')
