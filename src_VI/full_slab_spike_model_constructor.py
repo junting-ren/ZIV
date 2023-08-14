@@ -3,47 +3,42 @@ from torch import nn
 import numpy as np
 import matplotlib.pyplot as plt
 import math
-# def cust_act(x):
-#     return (x/torch.sqrt(torch.sqrt(1+x**4))+1)*0.5
-def cust_act(x):
-    return torch.sigmoid(x)
-# def cust_act(x):
-#     return (x/torch.sqrt(1+x**2)+1)*0.5
-# def cust_act(x):
-#     return (x/(1+torch.abs(x))+1)*0.5
-# def cust_act(x):
-#     return (2/3.14*torch.arctan(3.14/2*x)+1)*0.5
-# def cust_act(x):
-#     return (torch.tanh(x)+1)*0.5
+
+
+
 class linear_slab_spike(nn.Module):
     def __init__(self, p, n_total, p_confound = 0,init_pi_local_max = 0.1, init_pi_local_min = 0.0, init_pi_global = 0.5, init_beta_var = 1, init_noise_var = 1,
                 gumbel_softmax_temp = 0.5, gumbel_softmax_hard = False, a1= 1.1,a2=3.1, init_a3= 1.1, init_a4 = 5.1,
                 b1 = 1.1, b2 = 1.1, init_b3 = 1.1, init_b4 = 1.1, n_E = 50, prior_sparsity = True,
-                 prior_sparsity_beta = False, exact_lh = False, tobit = False, device = 'cpu'):
+                 prior_sparsity_beta = False, exact_lh = True, tobit = True, device = 'cpu'):
         '''Initialize fast variational inference Bayesian slab and spike linear model
         
         Parameters:
-        ------------------------
+        ------------------------------------------------------------------------------------------
         p: number of features that needs variable selection, not including the bias
-        p_confound: number of features that does not need variable selection
-        init_pi_local: the initial value of sparsity probability for each feature
-        init_pi_global:  the initial value of global sparsity probability (MLE), not used when prior_sparsity is True
+        n_total: total number of observations in the full dataset, for correcting the batch likelihood.
+        p_confound: number of confounder features that does not need variable selection
+        init_pi_local_max: the upper bound of uniform initilization for the non-null probability of each feature
+        init_pi_local_min: the lower bound of uniform initilization for the non-null probability of each feature
+        init_pi_global:  the initial value of global non-null probability, not used when prior_sparsity is True
         init_beta_var: the initial value of feature coefficent variance
         init_noise_var: inital value for noise variance
-        gumbel_softmax_temp: gumbel softmax temperature value, the smaller the value, the more closer to the true binary sample but with greater graident variance
-        gumbel_softmax_hard:  if True, the returned samples will be discretized as one-hot vectors, but will be differentiated as if it is the soft sample in autograd
-        a1: prior beta distribution parameters for global sparsity
-        a2: prior beta distribution parameters for global sparsity
-        init_a3: posterior beta distribution parameter
-        init_a4:posterior beta distribution parameter
-        b1: prior inverse gamma distribution parameters for noise varaiance
-        b2: prior inverse gamma distribution parameters for noise varaiance
+        gumbel_softmax_temp: Depreciated, gumbel softmax temperature value, the smaller the value, the more closer to the true binary sample but with greater graident variance
+        gumbel_softmax_hard: Depreciated, if True, the returned samples will be discretized as one-hot vectors, but will be differentiated as if it is the soft sample in autograd
+        a1: Depreciated (uniform prior now), prior beta distribution parameters for global sparsity
+        a2: Depreciated (uniform prior now), prior beta distribution parameters for global sparsity
+        init_a3: posterior beta distribution parameter 1
+        init_a4:posterior beta distribution parameter 2
+        b1: Depreciated (defaults to uniform prior now), prior inverse gamma distribution parameters for noise varaiance
+        b2: Depreciated (defaults to uniform prior now), prior inverse gamma distribution parameters for noise varaiance
         init_b3: initial mean for log-normal posterior for noise variance
         init_b4: initial variance for log-normal posterior for noise variance
-        n_E: number of samples for the empirical expectation of the data likelihood
-        prior_sparsity: If True, the global sparsity will have a prior or else it will be estimated through Maximum likelihood.
-        prior_sparsity_beta: If True, the global sparsity will have a beta prior or else it will be Uniform.
-        
+        n_E: Depreciated (defaults to exact likelihood calculation), number of samples for the empirical expectation of the data likelihood
+        prior_sparsity: Defaults to True. If True, the global sparsity will have a prior or else it will be estimated through Maximum likelihood.
+        prior_sparsity_beta: Defaults to False. If True, the global sparsity will have a beta prior or else it will be Uniform.
+        exact_lh: Defaults to True. If True, the likelihood will be calculated exactly, else it will be estimated through Monte Carlo sampling.
+        tobit: Defaults to True. Whether the outcome is censored or not.
+        device: Defaults to 'cpu'. The device to run the model on. Other options include 'cuda' for GPU.
         '''
         super(linear_slab_spike, self).__init__()
         # Fixed values in the model
@@ -81,33 +76,32 @@ class linear_slab_spike(nn.Module):
         self.exact_lh = exact_lh
         
     def get_para_orig_scale(self):
-        '''Function to calculate the parameters ont he original scale
+        '''Function to calculate and return the parameters in the original scale
         '''
-        return torch.exp(self.log_var_noise),torch.exp(self.beta_log_var), cust_act(self.logit_pi_local), \
+        return torch.exp(self.log_var_noise),torch.exp(self.beta_log_var), torch.sigmoid(self.logit_pi_local), \
                 torch.exp(self.beta_log_var_prior), \
                 torch.exp(self.log_a3), torch.exp(self.log_a4),\
-                self.b3,torch.exp(self.log_b4), cust_act(self.logit_pi_global)
+                self.b3,torch.exp(self.log_b4), torch.sigmoid(self.logit_pi_global)
     
     def log_data_lh(self, beta, delta, X, y, b3, b4, beta_var):
         '''Calculate the expected data likelihood over the approximation posterior
         
         Parameters:
         ----------------------
-        beta: sampled coefficient, n_E by p matrix
-        delta: sampled sparsity, n_E by p matrix
-        X: feature matrix, n by p
-        y: outcome vector, n by 1
-        b3: noise variance inverse gamma for approximation posterior
-        b4: noise variance inverse gamma for approximation posterior
-        
+        beta: sampled coefficient, p dimensional vector
+        delta: sampled sparsity, p dimensional vector
+        X: feature matrix, n by (p_confound+p) matrix
+        y: outcome vector, n dimensional vector
+        b3: mean parameter for log-normal approximation posterior for noise variance
+        b4: variance parameter for log-normal approximation posterior for noise variance
+        beta_var: beta variance vector for approximation posterior, p by 1
+
         Return:
         ----------------------
         Expected data likelihood over the approximation posterior
         '''
-        #import pdb;pdb.set_trace()
         n = X.shape[0]
-        #import pdb;pdb.set_trace()
-        # X matrix should be n by self.p+ self.p_confound dimension
+        # X matrix should be n by self.p_confound+self.p  dimension
         if self.p_confound>0:
             X_conf = X[:,:self.p_confound]
             X = X[:,self.p_confound:]
@@ -168,22 +162,19 @@ class linear_slab_spike(nn.Module):
         
         Parameters:
         ------------------
-        pi_local: sparsity parameter for approximation posterior: p by 1
-        beta_var: variance for coefficient for approximation posterior: p by 1
+        pi_local: non-null proportion parameter for approximating the posterior: p dimensional vector
+        beta_var: variance for coefficient for approximating the posterior: p dimensional vector
         beta_var_prior: fixed prior variance for coefficient
-        a3: global sparsity beta distribution parameter for approximation posterior
-        a4: global sparsity beta distribution parameter for approximation posterior
-        b3: noise variance inverse gamma for approximation posterior
-        b4: noise variance inverse gamma for approximation posterior
-        pi_global: global sparsity if prior_sparsity=False, or else it is not used
+        a3: global non-null proportion beta distribution parameter for approximating the posterior
+        a4: global non-null proportion beta distribution parameter for approximating the posterior
+        b3: mean parameter for log-normal approximation posterior for noise variance
+        b4: variance parameter for log-normal approximation posterior for noise variance
+        pi_global: Depreciated, global non-null proportion if prior_sparsity=False, or else it is not used
         
         Return:
         -------------------
         Expected prior likelihood over the approximation posterior
         '''
-        # expected log likelihood of noise variance
-        # lh_noise_var = self.b1*torch.log(self.b2)-torch.lgamma(self.b1)\
-        # -(self.b1+1)*(torch.log(b4)-torch.digamma(b3)) - self.b2*b3/b4
         lh_noise_var = 0
         if self.prior_sparsity:
             # expectation of log pi
@@ -206,18 +197,17 @@ class linear_slab_spike(nn.Module):
             - 0.5*(torch.sum(beta_var*pi_local)+torch.sum(torch.square(self.beta_mu)*pi_local)+torch.sum((1-pi_local)*beta_var_prior))/beta_var_prior
             return lh_1+lh_noise_var
     
-    def log_entropy(self, pi_local, a3, a4, b3, b4, pi_global):
+    def log_entropy(self, pi_local, a3, a4, b3, b4):
         '''Calculate the entropy for the approximation posterior
         
         Parameters:
-        ------------------
+        ------------------------
         pi_local: sparsity parameter for approximation posterior: p by 1
-        a3: global sparsity beta distribution parameter for approximation posterior
-        a4: global sparsity beta distribution parameter for approximation posterior
-        b3: noise variance inverse gamma for approximation posterior
-        b4: noise variance inverse gamma for approximation posterior
-        pi_global: global sparsity if prior_sparsity=False, or else it is not used
-        
+        a3: global non-null proportion beta distribution parameter for approximation posterior
+        a4: global non-null proportion beta distribution parameter for approximation posterior
+        b3: mean parameter for log-normal approximation posterior for noise variance
+        b4: variance parameter for log-normal approximation posterior for noise variance
+
         Return:
         -------------------
         The entropy for the approximation posterior
@@ -234,13 +224,18 @@ class linear_slab_spike(nn.Module):
         entropy_noise_var = torch.log(torch.sqrt(b4)*torch.exp(b3+0.5))
         return entropy1+entropy_global_pi+entropy_noise_var
     
-    def ELBO(self,X, y, B):
+    def ELBO(self,X, y):
         '''
         Caculate the Evidence Lower Bound
         
         Parameters:
         ---------------------
-        B: number of min-batches for one epoch 
+        X: feature matrix, n by (p_confound+p) matrix
+        y: outcome vector, n by 1
+        
+        Return:
+        -------------------
+        The evidence lower bound
         '''
         n_batch = X.shape[0]
         # get the current parameter after transformation
@@ -258,7 +253,7 @@ class linear_slab_spike(nn.Module):
         # ELBO
         ELBO = self.log_data_lh(beta, delta, X, y, b3, b4, beta_var) + \
             n_batch/self.n_total*self.log_prior_expect_lh(pi_local, beta_var, beta_var_prior, a3, a4, b3, b4,pi_global) + \
-            n_batch/self.n_total*self.log_entropy(pi_local, a3, a4, b3, b4, pi_global)
+            n_batch/self.n_total*self.log_entropy(pi_local, a3, a4, b3, b4)
         return ELBO
     
     def inference(self, est_mean, num_samples = 500, plot = False, true_beta = None):
@@ -354,7 +349,7 @@ class linear_slab_spike(nn.Module):
                    s = 70, marker = '+', color = "black")
             ax.plot(np.arange(self.p),  beta_plot, \
                        linewidth = 3, color = "red", \
-                       label = "linear model with spike and slab prior")
+                       label = "ZIV estimates")
             ax.set_xlim([0,self.p-1])
             ax.set_ylabel("Slopes", fontsize=18)
             ax.hlines(0,0,self.p-1)
@@ -377,14 +372,14 @@ class linear_slab_spike(nn.Module):
         
         Parameters:
         -----------------------
-        X_batch: current batch feature matrix
+        X_batch: current batch feature matrix, n_batch by (p_confound+p) matrix
         sample_beta: num_samples by p 
-        
+        y: current batch response vector, n_batch dimensional  vector
+
         Return:
         -----------------------
         A numpy 1D array containing the prediction for the batch
         '''
-        #import pdb; pdb.set_trace()
         if self.p_confound>0:
             est_mean = np.expand_dims(X_batch[:,:self.p_confound].cpu().detach().numpy() @ np.transpose(self.beta_confound.cpu().detach().numpy()), axis = 1) + X_batch[:,self.p_confound:].cpu().detach().numpy() @ np.transpose(sample_beta) + self.bias.cpu().detach().numpy() # a n_batch*num_samples matrix
         else:
@@ -393,7 +388,18 @@ class linear_slab_spike(nn.Module):
         error = point_est*(point_est>0) - y.cpu().detach().numpy()
         return est_mean, error, point_est
     
-    def predict(self, X, num_samples = 1000):
+    def predict(self, X):
+        '''
+        Predict the response for the input feature matrix
+        
+        Parameters:
+        -----------------------
+        X: current batch feature matrix
+
+        Return:
+        -----------------------
+        A numpy 1D array prediction for the input feature matrix
+        '''
         beta_mean = (self.beta_mu.cpu().detach()).numpy()
         pi_local = torch.sigmoid(self.logit_pi_local.cpu().detach()).numpy()
         sample_beta = beta_mean*pi_local
@@ -405,8 +411,15 @@ class linear_slab_spike(nn.Module):
         return est_mean
     
     def sample_beta(self, num_samples):
-        '''
-        Return a numpy array for the sample betas matrix num_samples by p 
+        '''Draw from the posterior distribution of beta
+
+        Parameters:
+        -----------------------
+        num_samples: number of samples to draw
+
+        Return:
+        -----------------------
+        a numpy array for the sample betas matrix num_samples by p 
         '''
         beta_mean = (self.beta_mu.cpu().detach()).numpy()
         beta_var = torch.exp(self.beta_log_var).cpu().detach().numpy()
