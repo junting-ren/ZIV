@@ -148,8 +148,8 @@ class sim_helper(object):
     def load_clean_data(self):
         # save the data into self
         # will use this multiple time
-        ABCD = pd.read_csv('../dataset/abcd.csv')
-        list_ROI = pyreadr.read_r('../dataset/ABCD_ROI.list.RData')
+        ABCD = pd.read_csv('/Users/juntingren/Desktop/L0_VI_Bayesian_full_experimentation_code/dataset/abcd.csv')
+        list_ROI = pyreadr.read_r('/Users/juntingren/Desktop/L0_VI_Bayesian_full_experimentation_code/dataset/ABCD_ROI.list.RData')
         # 'rsmri_list', 'tfmri_list', 'smri_list', 'dti_list', 'rsi_list'
         ABCD_sub = ABCD.loc[:,np.isin(ABCD.columns,list(np.squeeze(list_ROI[self.image_modality].values,1))+['subjectid', 'eventname', 'demo_rel_family_id.bl'])]
         ABCD_sub = ABCD_sub.loc[~ABCD_sub.isnull().any(axis = 1),:]
@@ -176,6 +176,10 @@ class sim_helper(object):
         #import pdb; pdb.set_trace()
         # setting up the parameter grid
         df_result = []
+        if self.n_sub_l is None:
+            self.n_sub_l = [n]
+        if self.p_sub_l is None:
+            self.p_sub_l = [self.data.shape[1]]
         param_grid = {'X': [self.data], 'train_index': [train_index], 'test_index': [test_index],'h':self.heritability_l,
                       'percent_causal': self.percent_causal_l, 'beta_var': self.beta_var_l, 'compare_mcmc':[self.compare_mcmc],
                       'n_sub':self.n_sub_l,'p_sub':self.p_sub_l
@@ -196,7 +200,11 @@ class sim_helper(object):
             pool_obj.close()
             pool_obj.join()
             df_result_l.extend([x[2] for x in result])
-            pd.concat(df_result_l).to_csv(os.path.join(self.path, 'result.csv'), index = False)
+            if self.compare_mcmc:
+                save_result_name = 'result_mcmc.csv'
+            else:
+                save_result_name = 'result.csv'
+            pd.concat(df_result_l).to_csv(os.path.join(self.path, save_result_name), index = False)
             z_train_l.extend([x[0] for x in result])
             z_test_l.extend([x[1] for x in result])
             pd.DataFrame(z_train_l).to_csv(os.path.join(self.path, 'z_train.csv'), index = False)
