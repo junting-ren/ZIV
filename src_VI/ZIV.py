@@ -19,7 +19,7 @@ class ZIV(object):
         
         Parameters
         ----------
-        data : pandas dataframe, n by p
+        data : pandas dataframe, n by p, unstandardized data, the model will standardize the data.
         outcome_name : string, the name of the outcome
         feature_conti_name : list of strings or empty list, the name of the continuous features
         feature_cate_name : list of strings or empty list, the name of the categorical features
@@ -44,13 +44,13 @@ class ZIV(object):
         if len(self.confounder_cate_name) >0:
             self.OHE_conf = OneHotEncoder(drop = 'first',sparse_output = False).fit(data[self.confounder_cate_name])
             encoded_cols_conf = list(self.OHE_conf.get_feature_names_out(self.confounder_cate_name))
-            data[encoded_cols_conf] = OHE_conf.transform(data[self.confounder_cate_name])
+            data[encoded_cols_conf] = self.OHE_conf.transform(data[self.confounder_cate_name])
         else:
             encoded_cols_conf = []
         if len(self.feature_cate_name)>0:
             self.OHE_feature = OneHotEncoder(drop = 'first',sparse_output = False).fit(data[self.feature_cate_name])
             encoded_cols_feature = list(self.OHE_feature.get_feature_names_out(self.feature_cate_name))
-            data[encoded_cols_feature] = OHE_feature.transform(data[self.feature_cate_name])
+            data[encoded_cols_feature] = self.OHE_feature.transform(data[self.feature_cate_name])
         else:
             encoded_cols_feature = []
         # Setting up the numpy array
@@ -141,7 +141,8 @@ class ZIV(object):
         '''Predict the outcome on the new data
         Parameters
         ----------
-        data: dataframe with the same columns as the training dataframe except the outcome column, the new data
+        data: dataframe with the same columns as the training dataframe except the outcome column, the new data. 
+        All columns are unstandardized.
 
         Returns
         -------
@@ -150,14 +151,16 @@ class ZIV(object):
         # Processs the data into numpy 
         if len(self.confounder_cate_name) > 0:
             encoded_cols_conf = list(self.OHE_conf.get_feature_names_out(self.confounder_cate_name))
-            data[encoded_cols_conf] = OHE_conf.transform(data[self.confounder_cate_name])
+            data[encoded_cols_conf] = self.OHE_conf.transform(data[self.confounder_cate_name])
         else:
             encoded_cols_conf = []
         if len(self.feature_cate_name)>0:
             encoded_cols_feature = list(self.OHE_feature.get_feature_names_out(self.feature_cate_name))
-            data[encoded_cols_feature] = OHE_feature.transform(data[self.feature_cate_name])
+            data[encoded_cols_feature] = self.OHE_feature.transform(data[self.feature_cate_name])
         else:
             encoded_cols_feature = []
-        X = torch.tensor(data[self.feature_conf_names].to_numpy())
+        X = data[self.feature_conf_names].to_numpy()
+        X = self.scaler.transform(X) # Standardization using the scaler from the training data
+        X = torch.tensor(X)
         z_pred = self.best_model.predict(X)
         return z_pred
