@@ -398,14 +398,16 @@ class linear_slab_spike(nn.Module):
 
         Return:
         -----------------------
-        A numpy 1D array prediction for the input feature matrix
+        A numpy 1D n_batch array prediction for the input feature matrix
         '''
         beta_mean = (self.beta_mu.cpu().detach()).numpy()
         pi_local = torch.sigmoid(self.logit_pi_local.cpu().detach()).numpy()
         sample_beta = beta_mean*pi_local
         #import pdb; pdb.set_trace()
         if self.p_confound>0:
-            est_mean = np.expand_dims(X[:,:self.p_confound].cpu().detach().numpy() @ np.transpose(self.beta_confound.cpu().detach().numpy()), axis = 1) + X[:,self.p_confound:].cpu().detach().numpy() @ np.transpose(sample_beta) + self.bias.cpu().detach().numpy() # a n_batch*num_samples matrix
+            #import pdb; pdb.set_trace()
+            est_mean = X[:,:self.p_confound].cpu().detach().numpy() @ np.transpose(self.beta_confound.cpu().detach().numpy()) + \
+                X[:,self.p_confound:].cpu().detach().numpy() @ np.transpose(sample_beta) + self.bias.cpu().detach().numpy() # a n_batch*num_samples matrix
         else:
             est_mean = X.cpu().detach().numpy() @ np.transpose(sample_beta) + self.bias.cpu().detach().numpy() # a n_batch*num_samples matrix
         return est_mean

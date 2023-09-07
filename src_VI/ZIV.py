@@ -146,7 +146,7 @@ class ZIV(object):
 
         Returns
         -------
-        z_pred: numpy array, the predicted outcome
+        z_pred: A numpy 1D array prediction for the input feature matrix, mean prediction
         '''
         # Processs the data into numpy 
         if len(self.confounder_cate_name) > 0:
