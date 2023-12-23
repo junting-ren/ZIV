@@ -4,11 +4,11 @@ from sim_helper import sim_helper
 sim_data_indictor = True
 if __name__ == '__main__':
     if sim_data_indictor:
-        sim_ = sim_helper( n_sim = 10, heritability_l = [0.5, 0.25,0.05],
+        sim_ = sim_helper(n_sim = 500, heritability_l = [0.5, 0.25,0.05],
                           percent_causal_l = [0.1], 
-                          beta_var_l = [0.1], image_modality = None, random_seed = 1, 
-                          path = './', compare_mcmc = True, n_sub_l = [500,1000,2000], 
-                          p_sub_l = [10,50,100], sim_data = True, rho_l = [0,0.2,0.5])
+                          beta_var_l = [1], image_modality = None, random_seed = 1, 
+                          path = './', compare_mcmc = False, n_sub_l = [500,1000,2000], 
+                          p_sub_l = [50,100], sim_data = True, rho_l = [0,0.5])
         sim_.full_run()
     else:
         # main simulation using the full dataset from ABCD

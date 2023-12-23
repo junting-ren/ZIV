@@ -21,6 +21,7 @@ import jax.numpy as jnp
 
 def one_run(X, train_index, test_index, h, percent_causal, beta_var,rho, compare_mcmc = False, n_sub = None, p_sub = None):
     batch_size = len(train_index)
+    #import pdb; pdb.set_trace()
     # Check if we need to simulate the data
     if X == "None":
         p_causal = int(p_sub*percent_causal)
@@ -69,7 +70,7 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var,rho, compare
                               b1 = 1.1, b2 = 1.1, init_b3 = 10.0, init_b4 = 0.1, n_E = 1
                               , prior_sparsity = True, prior_sparsity_beta = False,exact_lh = True,tobit = True, device = device
                              ).double().to(device)
-    optimizer = torch.optim.Adam(model.parameters(),lr = 0.1)
+    optimizer = torch.optim.Adam(model.parameters(),lr = 0.05)
     lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=0.8)
     t = 100 #number of moving averages
     patience = 100# patience
@@ -84,6 +85,7 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var,rho, compare
     # latent model prediction
     z_pred = best_model.predict(torch.tensor(X_test).float())
     mae = np.mean(np.abs(z_pred*(z_pred>0) - z_test))
+    #import pdb; pdb.set_trace()
     # lasso and ridge prediction
     if not compare_mcmc:
         reg = LassoCV(cv = 5, alphas = (0.001,0.01,0.1,1,10), max_iter=10000)
@@ -100,7 +102,8 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var,rho, compare
         result_dict['mae_latent'] = mae
         result_dict['mae_lasso'] = mae_lasso
         result_dict['mae_ridge'] = mae_ridge
-        result_dict['beta_var'] = beta_var
+        result_dict['n'] = n
+        result_dict['p'] = p
     # MCMC model
     if compare_mcmc:
         start = time.time()
@@ -133,6 +136,8 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var,rho, compare
         result_dict['total_time_MCMC'] = total_time_MCMC
     result_dict['true_h'] = h
     result_dict['true_pi'] = percent_causal
+    result_dict['beta_var'] = beta_var
+    result_dict['rho'] = rho
     return [z_train,z_test, pd.DataFrame(result_dict)]
 
 def one_run_wrapper(kwargs):
@@ -198,7 +203,6 @@ class sim_helper(object):
                       'percent_causal': self.percent_causal_l, 'beta_var': self.beta_var_l, 'compare_mcmc':[self.compare_mcmc],
                       'n_sub':self.n_sub_l,'p_sub':self.p_sub_l, 'rho':self.rho_l 
                      }
-        #import pdb; pdb.set_trace()
         param_grid = ParameterGrid(param_grid)
         df_result_l = []
         z_train_l = []
@@ -218,6 +222,7 @@ class sim_helper(object):
                 save_result_name = 'result_mcmc.csv'
             else:
                 save_result_name = 'result.csv'
+            #import pdb; pdb.set_trace()
             pd.concat(df_result_l).to_csv(os.path.join(self.path, save_result_name), index = False)
             z_train_l.extend([x[0] for x in result])
             z_test_l.extend([x[1] for x in result])
