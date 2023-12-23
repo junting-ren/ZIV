@@ -19,23 +19,30 @@ import time
 from mcmc_linear import experiment, linear_mcmc_model, tobit_mcmc_model
 import jax.numpy as jnp
 
-def one_run(X, train_index, test_index, h, percent_causal, beta_var, compare_mcmc = False, n_sub = None, p_sub = None):
-    # sub sample data
-    if n_sub is not None:
-        X = pd.DataFrame(X).sample(n = n_sub, axis = 0)
-        X = np.array(X)
-    if p_sub is not None:
-        X = pd.DataFrame(X).sample(n = p_sub, axis = 1)
-        X = np.array(X)
-    # simulate data
+def one_run(X, train_index, test_index, h, percent_causal, beta_var,rho, compare_mcmc = False, n_sub = None, p_sub = None):
     batch_size = len(train_index)
-    n = X.shape[0]
-    p_confound = 0
-    p = X.shape[1]-p_confound
-    p_causal = int(p*percent_causal)
-    sim_class = data_sim.sim_tobit_data(n = n, p = p, p_causal = p_causal,p_confound =0, rho = None, var = None,
-                                        n_matrix = 1,h = h, bias = 0, Xs = [X], scale_lambda =None, beta_var= beta_var)
-    z, X, Xs, latent_mean, var_genetic, var_total, true_beta, y_star = sim_class.gen_data(seed = None)
+    # Check if we need to simulate the data
+    if X == "None":
+        p_causal = int(p_sub*percent_causal)
+        sim_class = data_sim.sim_tobit_data(n = n_sub, p = p_sub, p_causal = p_causal,p_confound =0, rho = rho, var = 1,
+                                            n_matrix = 1,h = h, bias = 0, Xs = None, scale_lambda =None, beta_var= beta_var)
+        z, X, Xs, latent_mean, var_genetic, var_total, true_beta, y_star = sim_class.gen_data(seed = None)
+    else:
+        n = X.shape[0]
+        p_confound = 0
+        p = X.shape[1]-p_confound
+        p_causal = int(p*percent_causal)
+        # sub sample data
+        if n_sub is not None:
+            X = pd.DataFrame(X).sample(n = n_sub, axis = 0)
+            X = np.array(X)
+        if p_sub is not None:
+            X = pd.DataFrame(X).sample(n = p_sub, axis = 1)
+            X = np.array(X)
+        # simulate data
+        sim_class = data_sim.sim_tobit_data(n = n, p = p, p_causal = p_causal,p_confound =0, rho = None, var = None,
+                                            n_matrix = 1,h = h, bias = 0, Xs = [X], scale_lambda =None, beta_var= beta_var)
+        z, X, Xs, latent_mean, var_genetic, var_total, true_beta, y_star = sim_class.gen_data(seed = None)
     #self.X_train, self.X_test, self.z_train, self.z_test = train_test_split(X, z, test_size=0.2, random_state=42)
     if n_sub is not None or p_sub is not None:
         n = X.shape[0]
@@ -134,7 +141,8 @@ def one_run_wrapper(kwargs):
 
 class sim_helper(object):
     def __init__(self, n_sim, heritability_l, percent_causal_l, beta_var_l, image_modality, 
-                 random_seed = 1, path = '', compare_mcmc = False, n_sub_l = None, p_sub_l = None):
+                 random_seed = 1, path = '', compare_mcmc = False, n_sub_l = None, p_sub_l = None, 
+                 sim_data = False, rho_l = [None]):
         self.n_sim = n_sim
         self.heritability_l = heritability_l
         self.percent_causal_l = percent_causal_l
@@ -145,6 +153,8 @@ class sim_helper(object):
         self.compare_mcmc = compare_mcmc
         self.n_sub_l = n_sub_l
         self.p_sub_l = p_sub_l
+        self.sim_data = sim_data
+        self.rho_l = rho_l
     def load_clean_data(self):
         # save the data into self
         # will use this multiple time
@@ -161,28 +171,32 @@ class sim_helper(object):
         ABCD_sub = scaler.transform(ABCD_sub)
         self.data = ABCD_sub
     def full_run(self):
-        self.load_clean_data()
         # loop over every parameter 
         # For every parameter run, we use parallel mapping function to run over the n_sim
-        n = self.data.shape[0]
-        indices = np.random.permutation(n)
-        split = int(n*0.8)
-        train_index, test_index = indices[:split], indices[split:]
-        # Save the feature matrix
-        data_save_train = pd.DataFrame(self.data[train_index,:])
-        data_save_train.to_csv(os.path.join(self.path, self.image_modality+'_train_standardized_features.csv'), index = False)
-        data_save_test = pd.DataFrame(self.data[test_index,:])
-        data_save_test.to_csv(os.path.join(self.path, self.image_modality+'_test_standardized_features.csv'), index = False)
+        if self.sim_data:
+            self.data = "None"
+            train_index = "None"
+            test_index = "None"
+        else:
+            self.load_clean_data()
+            n = self.data.shape[0]
+            indices = np.random.permutation(n)
+            split = int(n*0.8)
+            train_index, test_index = indices[:split], indices[split:]
+            # Save the feature matrix
+            data_save_train = pd.DataFrame(self.data[train_index,:])
+            data_save_train.to_csv(os.path.join(self.path, self.image_modality+'_train_standardized_features.csv'), index = False)
+            data_save_test = pd.DataFrame(self.data[test_index,:])
+            data_save_test.to_csv(os.path.join(self.path, self.image_modality+'_test_standardized_features.csv'), index = False)
         #import pdb; pdb.set_trace()
         # setting up the parameter grid
-        df_result = []
         if self.n_sub_l is None:
             self.n_sub_l = [n]
         if self.p_sub_l is None:
             self.p_sub_l = [self.data.shape[1]]
         param_grid = {'X': [self.data], 'train_index': [train_index], 'test_index': [test_index],'h':self.heritability_l,
                       'percent_causal': self.percent_causal_l, 'beta_var': self.beta_var_l, 'compare_mcmc':[self.compare_mcmc],
-                      'n_sub':self.n_sub_l,'p_sub':self.p_sub_l
+                      'n_sub':self.n_sub_l,'p_sub':self.p_sub_l, 'rho':self.rho_l 
                      }
         #import pdb; pdb.set_trace()
         param_grid = ParameterGrid(param_grid)
@@ -213,6 +227,6 @@ class sim_helper(object):
             # para_df.columns = df.columns
             # df_ = pd.concat([para_df, df_], axis = 1)
             # df_total = pd.concat([df_total,df_])
-            # df_total.to_csv(file_name, index = False)    
+            # df_total.to_csv(file_name, index = False)
     
         
