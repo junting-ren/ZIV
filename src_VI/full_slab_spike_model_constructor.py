@@ -153,7 +153,8 @@ class linear_slab_spike(nn.Module):
                 diff = X**2 @ (-mu_2*pi_2+(mu_2+beta_var)*delta)
                 #diff = 0
                 sum_squares = torch.square(y-est_mean) + diff
-                return -n*0.5*(torch.log(b4)-torch.digamma(b3))-1/(2)*b3/b4*torch.sum(sum_squares)
+                return -n*0.5*b3-1/(2)*torch.exp(-b3+b4/2)*torch.sum(sum_squares)
+                #return -n*0.5*(torch.log(b4)-torch.digamma(b3))-1/(2)*b3/b4*torch.sum(sum_squares)
             else:
                 return torch.mean(-n*0.5*(torch.log(b4)-torch.digamma(b3))-1/(2)*b3/b4*torch.sum(torch.square(y-est_mean)))
     
