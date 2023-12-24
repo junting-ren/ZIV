@@ -20,7 +20,6 @@ from mcmc_linear import experiment, linear_mcmc_model, tobit_mcmc_model
 import jax.numpy as jnp
 
 def one_run(X, train_index, test_index, h, percent_causal, beta_var,rho, compare_mcmc = False, n_sub = None, p_sub = None):
-    batch_size = len(train_index)
     #import pdb; pdb.set_trace()
     # Check if we need to simulate the data
     if X == "None":
@@ -54,7 +53,7 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var,rho, compare
     X_test = X[test_index, :]
     z_train = z[train_index]
     z_test = z[test_index]
-    
+    batch_size = len(train_index)
     # Run the model
     device = 'cpu'
     # sim one data, where the true h, percent_causal and beta known
@@ -70,10 +69,10 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var,rho, compare
                               b1 = 1.1, b2 = 1.1, init_b3 = 10.0, init_b4 = 0.1, n_E = 1
                               , prior_sparsity = True, prior_sparsity_beta = False,exact_lh = True,tobit = True, device = device
                              ).double().to(device)
-    optimizer = torch.optim.Adam(model.parameters(),lr = 0.05)
+    optimizer = torch.optim.Adam(model.parameters(),lr = 0.1)
     lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=0.8)
     t = 100 #number of moving averages
-    patience = 100# patience
+    patience = 200# patience
     start = time.time()
     best_model, error, point_est, result_dict = train_and_infer(model = model, optimizer = optimizer, 
                                                                 sim_data_loader = sim_data_loader, 
