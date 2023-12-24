@@ -364,6 +364,7 @@ class linear_slab_spike(nn.Module):
         return {'mean_h_est': [mean_h_est], 'h_est_upper': [upper], 'h_est_lower': [lower], 
                 'mean_var_genetic': [var_genetic_mean], 'noise_var': [noise_var_est], 
                 'global_pi':[global_pi_est], 'global_pi_upper':[global_pi_upper], 'global_pi_lower':[global_pi_lower],
+                'global_pi_upper_1':[global_pi_upper_1], 'global_pi_lower_1':[global_pi_lower_1],
                 'FDR':FDR, 'sensitivity':sensitivity
                }
     
