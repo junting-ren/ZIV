@@ -325,7 +325,8 @@ class linear_slab_spike(nn.Module):
         if true_beta is not None:
             #import pdb;pdb.set_trace()
             #Get the sensitivity and FDR using half of the estimated non-zero number
-            n_est_positive = int(global_pi_est*len(pi_local)/2)
+            n_est_positive_50 = int(global_pi_est*len(pi_local)/2)
+            n_est_positive_25 = int(global_pi_est*len(pi_local)/4)
             # p = len(pi_local)
             # pi_local_sorted = np.sort(pi_local)
             # sum_p = 0
@@ -334,13 +335,20 @@ class linear_slab_spike(nn.Module):
             #     if sum_p/(i+1) > 0.05:
             #         n_est_positive = i
             #         break
-            index_est_positive = np.argsort(-np.abs(pi_local))[:n_est_positive]
             index_actual_positive = np.where(np.abs(true_beta)>0)[0]
-            FDR = np.mean(~np.isin(index_est_positive, index_actual_positive))
-            sensitivity = np.sum(np.isin(index_est_positive, index_actual_positive))/len(index_actual_positive) if len(index_actual_positive)>0 else 1
+            # 50% of the estimate PNN
+            index_est_positive_50 = np.argsort(-np.abs(pi_local))[:n_est_positive_50]
+            FDR_50 = np.mean(~np.isin(index_est_positive_50, index_actual_positive))
+            sensitivity_50 = np.sum(np.isin(index_est_positive_50, index_actual_positive))/len(index_actual_positive) if len(index_actual_positive)>0 else 1
+            # 25% of the estimate PNN
+            index_est_positive_25 = np.argsort(-np.abs(pi_local))[:n_est_positive_25]
+            FDR_25 = np.mean(~np.isin(index_est_positive_25, index_actual_positive))
+            sensitivity_25 = np.sum(np.isin(index_est_positive_25, index_actual_positive))/len(index_actual_positive) if len(index_actual_positive)>0 else 1
         else:
-            FDR = None
-            sensitivity = None
+            FDR_50 = None
+            sensitivity_50 = None
+            FDR_25 = None
+            sensitivity_25 = None
         if plot and true_beta is not None:
             fig = plt.figure(figsize=(16,8), facecolor='white')
             ax = fig.add_subplot(1,1,1)
@@ -365,7 +373,7 @@ class linear_slab_spike(nn.Module):
                 'mean_var_genetic': [var_genetic_mean], 'noise_var': [noise_var_est], 
                 'global_pi':[global_pi_est], 'global_pi_upper':[global_pi_upper], 'global_pi_lower':[global_pi_lower],
                 'global_pi_upper_1':[global_pi_upper_1], 'global_pi_lower_1':[global_pi_lower_1],
-                'FDR':FDR, 'sensitivity':sensitivity
+                'FDR_50':FDR_50, 'sensitivity_50':sensitivity_50, 'FDR_25':FDR_25, "sensitivity_25":sensitivity_25
                }
     
     def cal_mean_batch(self, X_batch, sample_beta, y = None):
