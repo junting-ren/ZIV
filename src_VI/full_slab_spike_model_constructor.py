@@ -326,6 +326,7 @@ class linear_slab_spike(nn.Module):
             #import pdb;pdb.set_trace()
             #Get the sensitivity and FDR using half of the estimated non-zero number
             n_est_positive_100 = int(global_pi_est*len(pi_local))
+            n_est_positive_75 = int(global_pi_est*len(pi_local)*0.75)
             n_est_positive_50 = int(global_pi_est*len(pi_local)/2)
             n_est_positive_25 = int(global_pi_est*len(pi_local)/4)
             # p = len(pi_local)
@@ -341,6 +342,10 @@ class linear_slab_spike(nn.Module):
             index_est_positive_100 = np.argsort(-np.abs(pi_local))[:n_est_positive_100]
             FDR_100 = np.mean(~np.isin(index_est_positive_100, index_actual_positive))
             sensitivity_100 = np.sum(np.isin(index_est_positive_100, index_actual_positive))/len(index_actual_positive) if len(index_actual_positive)>0 else 1
+            # 75% of the estimate PNN
+            index_est_positive_75 = np.argsort(-np.abs(pi_local))[:n_est_positive_75]
+            FDR_75 = np.mean(~np.isin(index_est_positive_75, index_actual_positive))
+            sensitivity_75 = np.sum(np.isin(index_est_positive_75, index_actual_positive))/len(index_actual_positive) if len(index_actual_positive)>0 else 1
             # 50% of the estimate PNN
             index_est_positive_50 = np.argsort(-np.abs(pi_local))[:n_est_positive_50]
             FDR_50 = np.mean(~np.isin(index_est_positive_50, index_actual_positive))
@@ -352,6 +357,8 @@ class linear_slab_spike(nn.Module):
         else:
             FDR_100 = None
             sensitivity_100 = None
+            FDR_75 = None
+            sensitivity_75 = None
             FDR_50 = None
             sensitivity_50 = None
             FDR_25 = None
@@ -381,7 +388,7 @@ class linear_slab_spike(nn.Module):
                 'global_pi':[global_pi_est], 'global_pi_upper':[global_pi_upper], 'global_pi_lower':[global_pi_lower],
                 'global_pi_upper_1':[global_pi_upper_1], 'global_pi_lower_1':[global_pi_lower_1],
                 'FDR_50':FDR_50, 'sensitivity_50':sensitivity_50, 'FDR_25':FDR_25, "sensitivity_25":sensitivity_25,
-                'FDR_100':FDR_100, "sensitivity_100":sensitivity_100
+                'FDR_100':FDR_100, "sensitivity_100":sensitivity_100,'FDR_75':FDR_75, "sensitivity_100":sensitivity_75
                }
     
     def cal_mean_batch(self, X_batch, sample_beta, y = None):
