@@ -124,6 +124,7 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var,rho, linear_
         end = time.time()
         total_time_MCMC = end - start
         beta = posterior["beta"]* posterior["delta"]
+        pi_local = np.mean(posterior["delta"], axis = 0)
         g_var = (beta @ jnp.transpose(X) ).var(axis = 1)
         dat_var = posterior["var_error"]
         heritability = g_var/(dat_var+g_var)
@@ -142,6 +143,36 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var,rho, linear_
         result_dict['up_global_pi_mcmc'] = up_pi_mcmc
         result_dict['total_time_VI'] = total_time_VI
         result_dict['total_time_MCMC'] = total_time_MCMC
+        # Get sensitivity and FDR from MCMC
+        n_est_positive_100 = int(mean_pi_mcmc*len(pi_local))
+        n_est_positive_75 = int(mean_pi_mcmc*len(pi_local)*0.75)
+        n_est_positive_50 = int(mean_pi_mcmc*len(pi_local)/2)
+        n_est_positive_25 = int(mean_pi_mcmc*len(pi_local)/4)
+        # p = len(pi_local)
+        # pi_local_sorted = np.sort(pi_local)
+        # sum_p = 0
+        # for i in range(p):
+        #     sum_p += 1 - pi_local_sorted[p-i-1]
+        #     if sum_p/(i+1) > 0.05:
+        #         n_est_positive = i
+        #         break
+        index_actual_positive = np.where(np.abs(true_beta)>0)[0]
+        # 100% of the estimate PNN
+        index_est_positive_100 = np.argsort(-np.abs(pi_local))[:n_est_positive_100]
+        result_dict["FDR_100_mcmc"] = np.mean(~np.isin(index_est_positive_100, index_actual_positive))
+        result_dict["sensitivity_100_mcmc"] = np.sum(np.isin(index_est_positive_100, index_actual_positive))/len(index_actual_positive) if len(index_actual_positive)>0 else 1
+        # 75% of the estimate PNN
+        index_est_positive_75 = np.argsort(-np.abs(pi_local))[:n_est_positive_75]
+        result_dict["FDR_75_mcmc"] = np.mean(~np.isin(index_est_positive_75, index_actual_positive))
+        result_dict["sensitivity_75_mcmc"] = np.sum(np.isin(index_est_positive_75, index_actual_positive))/len(index_actual_positive) if len(index_actual_positive)>0 else 1
+        # 50% of the estimate PNN
+        index_est_positive_50 = np.argsort(-np.abs(pi_local))[:n_est_positive_50]
+        result_dict["FDR_50_mcmc"] = np.mean(~np.isin(index_est_positive_50, index_actual_positive))
+        result_dict["sensitivity_50_mcmc"] = np.sum(np.isin(index_est_positive_50, index_actual_positive))/len(index_actual_positive) if len(index_actual_positive)>0 else 1
+        # 25% of the estimate PNN
+        index_est_positive_25 = np.argsort(-np.abs(pi_local))[:n_est_positive_25]
+        result_dict["FDR_25_mcmc"] = np.mean(~np.isin(index_est_positive_25, index_actual_positive))
+        result_dict["sensitivity_25_mcmc"] = np.sum(np.isin(index_est_positive_25, index_actual_positive))/len(index_actual_positive) if len(index_actual_positive)>0 else 1
     result_dict['true_h'] = h
     result_dict['true_pi'] = percent_causal
     result_dict['beta_var'] = beta_var
