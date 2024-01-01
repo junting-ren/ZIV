@@ -11,7 +11,7 @@ class experiment(object):
         self.z = z
         self.X = X
         self.p = X.shape[1]
-    def train(self, step_size, verbose = True, num_samples = 2000, warmup_steps=1000):
+    def train(self, step_size, verbose = True, num_samples = 1000, warmup_steps=1000):
         progress_bar = verbose
         kernel = DiscreteHMCGibbs(NUTS(self.model,step_size = step_size, init_strategy  = init_to_median))
         #kernel = HMCGibbs(inner_kernel = NUTS(self.model,step_size = step_size, init_strategy  = init_to_median), gibbs_fn=gibbs_fn, gibbs_sites=["beta"])

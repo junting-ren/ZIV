@@ -118,7 +118,7 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var,rho, linear_
             exp = experiment(linear_mcmc_model, z_train, X_train)
         else:
             exp = experiment(tobit_mcmc_model, z_train, X_train)
-        exp.train(step_size =1,verbose = False)
+        exp.train(step_size =1,verbose = False, num_samples = 1000, warmup_steps=1000)
         #import pdb; pdb.set_trace()
         posterior = exp.mcmc.get_samples()
         end = time.time()
