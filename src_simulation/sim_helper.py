@@ -93,21 +93,33 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var,rho, linear_
     z_pred = best_model.predict(torch.tensor(X_test).float())
     mae = np.mean(np.abs(z_pred*(z_pred>0) - z_test))
     #import pdb; pdb.set_trace()
-    # lasso and ridge prediction
+    # Lasso
     reg = LassoCV(cv = 5, alphas = (0.001,0.01,0.1,1,10), max_iter=10000)
     reg.fit(X_train,z_train)
     z_pred = reg.predict(X_test)
     mae_lasso = np.mean(np.abs(z_pred*(z_pred>0)-z_test))
+    # Lasso with only non-zero outcomes
+    reg = LassoCV(cv = 5, alphas = (0.001,0.01,0.1,1,10), max_iter=10000)
+    reg.fit(X_train[z_train>0,:],z_train[z_train>0])
+    z_pred = reg.predict(X_test)
+    mae_lasso_nonzero = np.mean(np.abs(z_pred*(z_pred>0)-z_test))
     # Ridge
     reg = RidgeCV(cv = 5, alphas = (0.001,0.01,0.1,1,10))
     reg.fit(X_train,z_train)
     z_pred = reg.predict(X_test)
     mae_ridge = np.mean(np.abs(z_pred*(z_pred>0)-z_test))
+    # Ridge with only non-zero outcomes
+    reg = RidgeCV(cv = 5, alphas = (0.001,0.01,0.1,1,10))
+    reg.fit(X_train[z_train>0,:],z_train[z_train>0])
+    z_pred = reg.predict(X_test)
+    mae_ridge_nonzero = np.mean(np.abs(z_pred*(z_pred>0)-z_test))
     # This should return as a dictionary that contains the outcome and beta; 
     #the estimate and coverage for heritability, percentage causal, prediction bias in MAE, sensitivity and FDR
     result_dict['mae_latent'] = mae
     result_dict['mae_lasso'] = mae_lasso
     result_dict['mae_ridge'] = mae_ridge
+    result_dict['mae_lasso_nonzero'] = mae_lasso_nonzero
+    result_dict['mae_ridge_nonzero'] = mae_ridge_nonzero
     result_dict['n'] = n
     result_dict['p'] = p
     result_dict['linear_outcome'] = linear_outcome
