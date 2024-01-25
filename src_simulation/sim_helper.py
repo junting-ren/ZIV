@@ -13,7 +13,7 @@ from sklearn.linear_model import LassoCV,RidgeCV
 import pyreadr
 from sklearn.model_selection import ParameterGrid
 import os
-
+import numpy as np
 import time
 
 from mcmc_linear import experiment, linear_mcmc_model, tobit_mcmc_model
@@ -192,7 +192,12 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var,rho, linear_
     return [z_train,z_test, pd.DataFrame(result_dict)]
 
 def one_run_wrapper(kwargs):
-    return one_run(**kwargs)
+    try: 
+        result = one_run(**kwargs)
+    except Exception as e:
+        print(e)
+        result = [np.array([]), np.array([]), pd.DataFrame()]
+    return result
 
 
 class sim_helper(object):
