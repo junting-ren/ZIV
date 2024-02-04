@@ -15,8 +15,8 @@ library(patchwork)
 
 # Main simulation to evaluate algorithm validality
 ```{r}
-sim_result = read_csv('../simulation_result/result.csv')
-chun_result = read_csv('../simulation_result/chun_results.csv')
+sim_result = read_csv('./result.csv')
+chun_result = read_csv('./chun_results.csv')
 sim_result = bind_cols(sim_result,chun_result)
 ```
 ```{r}
