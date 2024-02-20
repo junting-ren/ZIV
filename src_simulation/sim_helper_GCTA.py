@@ -17,6 +17,7 @@ from gen_GCTA_GRM import gen_GCTA_GRM
 import subprocess
 from scipy.linalg import pinv
 from scipy.stats import pearsonr
+import multiprocessing
 
 # 1. Simulate the X data with fix p and max n
 # 2. Write the GMR matrix
@@ -69,14 +70,18 @@ def one_run(train_X, test_X, h, percent_causal, beta_var,rho, linear_outcome = F
     ##############################################
     # All observed z
     ###############################################
+    pid = os.getpid()
     random_file_name = str(np.random.uniform(size = 1))
-    pheno_file = tmp_loc+random_file_name+"train.brm.pheno"
+    pheno_file = f"{tmp_loc}{random_file_name}{pid}train.brm.pheno"
     # Write phenotype data to file
     with open(pheno_file, 'w') as fid_pheno:
         for idx, val in enumerate(z_train):
             fid_pheno.write(f'{(train_index+1)[idx]}\t{(train_index+1)[idx]}\t{val}\n')
-    cmd = f"{gcta_path} --thread-num 2 --grm-gz {grm_path} --pheno {pheno_file} --reml --reml-pred-rand --out {pheno_file}tmp"
+    cmd = f"{gcta_path} --thread-num 1 --grm-gz {grm_path} --pheno {pheno_file} --reml --reml-pred-rand --out {pheno_file}tmp"
+    start = time.time()
     subprocess.run(cmd, check=True, shell=True)
+    end = time.time()
+    total_time_GCTA = end - start
     with open(f"{pheno_file}tmp.hsq", 'r') as fid:
         # Skipping headers and reading data
         headers = next(fid).split()
@@ -95,13 +100,13 @@ def one_run(train_X, test_X, h, percent_causal, beta_var,rho, linear_outcome = F
     ###############################################
     if not linear_outcome:
         random_file_name = str(np.random.uniform(size = 1))
-        pheno_file = tmp_loc+random_file_name+"train.brm.pheno"
+        pheno_file = f"{tmp_loc}{random_file_name}{pid}train.brm.pheno"
         # Write phenotype data to file
         with open(pheno_file, 'w') as fid_pheno:
             for idx, val in enumerate(z_train):
                 if val>0:
                     fid_pheno.write(f'{(train_index+1)[idx]}\t{(train_index+1)[idx]}\t{val}\n')
-        cmd = f"{gcta_path} --thread-num 2 --grm-gz {grm_path} --pheno {pheno_file} --reml --reml-pred-rand --out {pheno_file}tmp"
+        cmd = f"{gcta_path} --thread-num 1 --grm-gz {grm_path} --pheno {pheno_file} --reml --reml-pred-rand --out {pheno_file}tmp"
         subprocess.run(cmd, check=True, shell=True)
         with open(f"{pheno_file}tmp.hsq", 'r') as fid:
             # Skipping headers and reading data
@@ -125,6 +130,7 @@ def one_run(train_X, test_X, h, percent_causal, beta_var,rho, linear_outcome = F
         result_dict['FVE_gcta_non_truncated'] = None
         result_dict['mae_gcta_non_truncated'] = None
     #import pdb; pdb.set_trace()
+    result_dict['total_time_GCTA'] = total_time_GCTA
     result_dict['n'] = n_sub_train
     result_dict['p'] = p_sub
     result_dict['linear_outcome'] = linear_outcome
@@ -233,39 +239,34 @@ class sim_helper_GCTA(object):
         df_result_l = []
         z_train_l = []
         z_test_l = []
-        for param in param_grid:
-            ctx = torch.multiprocessing.get_context('spawn')
-            pool_obj = ctx.Pool()
-            # pool_obj = multiprocessing.Pool()
-            cur_para = (self.n_sim*(param,))
-            #import pdb; pdb.set_trace()
-            #one_run_wrapper(param)
-            result = pool_obj.map(one_run_wrapper, cur_para)
-            pool_obj.close()
-            pool_obj.join()
-            df_result_l.extend([x[2] for x in result])
-            save_result_name = 'result'+'_'+self.file_suffix+'.csv'
-            #import pdb; pdb.set_trace()
-            pd.concat(df_result_l).to_csv(os.path.join(self.path, save_result_name), index = False)
-            z_train_l.extend([x[0] for x in result])
-            z_test_l.extend([x[1] for x in result])
-            pd.DataFrame(z_train_l).to_csv(os.path.join(self.path, 'z_train'+'_'+self.file_suffix+'.csv'), index = False)
-            pd.DataFrame(z_test_l).to_csv(os.path.join(self.path, 'z_test'+'_'+self.file_suffix+'.csv'), index = False)
-            # para_df = pd.DataFrame(np.repeat(df.values,df_.shape[0], axis=0))
-            # para_df.columns = df.columns
-            # df_ = pd.concat([para_df, df_], axis = 1)
-            # df_total = pd.concat([df_total,df_])
-            # df_total.to_csv(file_name, index = False)
+        tasks = [param for param in param_grid for _ in range(self.n_sim)]
+        #import pdb; pdb.set_trace()
+        #one_run_wrapper(param)
+        with multiprocessing.Pool(processes=os.cpu_count()-1) as pool:
+            result = pool.map(one_run_wrapper, tasks)
+        df_result_l.extend([x[2] for x in result])
+        save_result_name = 'result'+'_'+self.file_suffix+'.csv'
+        #import pdb; pdb.set_trace()
+        pd.concat(df_result_l).to_csv(os.path.join(self.path, save_result_name), index = False)
+        z_train_l.extend([x[0] for x in result])
+        z_test_l.extend([x[1] for x in result])
+        pd.DataFrame(z_train_l).to_csv(os.path.join(self.path, 'z_train'+'_'+self.file_suffix+'.csv'), index = False)
+        pd.DataFrame(z_test_l).to_csv(os.path.join(self.path, 'z_test'+'_'+self.file_suffix+'.csv'), index = False)
+        # para_df = pd.DataFrame(np.repeat(df.values,df_.shape[0], axis=0))
+        # para_df.columns = df.columns
+        # df_ = pd.concat([para_df, df_], axis = 1)
+        # df_total = pd.concat([df_total,df_])
+        # df_total.to_csv(file_name, index = False)
     
 if __name__ == "__main__":
-        sim_ = sim_helper_GCTA(n_sim = 200, heritability_l = [0.8,0.5,0.25],
+        sim_ = sim_helper_GCTA(n_sim = 200, heritability_l = [0.8, 0.5, 0.25],
                         percent_causal_l = [0.1,0.3], 
                         beta_var_l = [0.1], image_modality = None, random_seed = 1, 
                         path = '/mnt/c/Users/juntingr/Desktop/L0_VI_Bayesian_approx/TCGA_result/', 
                         n_sub_l = [200,400,1000,2000,4000,8000], 
                         p_sub_l = [400], sim_data = True, rho_l = [0], 
                         linear_outcome_l = [False, True],
-                        file_suffix = "TCGA", 
+                        file_suffix = "TCGA_with_time", 
                         data_path = '/mnt/c/Users/juntingr/Desktop/L0_VI_Bayesian_approx/dataset/saved_sim_X/',
                         gcta_path = "/mnt/c/Users/juntingr/Desktop/gcta-1.94.1-linux-kernel-3-x86_64/gcta-1.94.1")
         sim_.full_run()
