@@ -153,7 +153,6 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var,rho, linear_
         result_dict['global_pi_mcmc'] = mean_pi_mcmc
         result_dict['low_global_pi_mcmc'] = low_pi_mcmc
         result_dict['up_global_pi_mcmc'] = up_pi_mcmc
-        result_dict['total_time_VI'] = total_time_VI
         result_dict['total_time_MCMC'] = total_time_MCMC
         # Get sensitivity and FDR from MCMC
         n_est_positive_100 = int(mean_pi_mcmc*len(pi_local))
@@ -185,6 +184,7 @@ def one_run(X, train_index, test_index, h, percent_causal, beta_var,rho, linear_
         index_est_positive_25 = np.argsort(-np.abs(pi_local))[:n_est_positive_25]
         result_dict["FDR_25_mcmc"] = np.mean(~np.isin(index_est_positive_25, index_actual_positive))
         result_dict["sensitivity_25_mcmc"] = np.sum(np.isin(index_est_positive_25, index_actual_positive))/len(index_actual_positive) if len(index_actual_positive)>0 else 1
+    result_dict['total_time_VI'] = total_time_VI
     result_dict['true_h'] = h
     result_dict['true_pi'] = percent_causal
     result_dict['beta_var'] = beta_var
