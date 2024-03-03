@@ -1,0 +1,569 @@
+---
+title: "Simulation Plotting for ZIV"
+author: "Junting Ren"
+date: "2024-02-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggh4x)
+library(scales)
+library(patchwork)
+```
+
+# Load and clean the result
+Sim X 
+```{r}
+df_sim_result_VI_MCMC = rbind(read_csv("result_sim_X.csv"), read_csv("result_sim_X_8000.csv")) %>% 
+  group_by(n, p, linear_outcome, true_h, true_pi, beta_var, rho) %>% 
+  mutate(id = row_number()) %>% 
+  ungroup()
+df_sim_result_TCGA = rbind(read_csv("result_TCGA_with_time_200_1000.csv"), read_csv("result_TCGA_with_time_2000_8000.csv")) %>% 
+  group_by(n, p, linear_outcome, true_h, true_pi,  beta_var, rho) %>% 
+  mutate(id = row_number()) %>% 
+  ungroup() %>% 
+  mutate(total_time_GCTA = ifelse(linear_outcome==TRUE,NA,total_time_GCTA))
+df_sim_result = df_sim_result_VI_MCMC %>% left_join(df_sim_result_TCGA, by = join_by(n, p, linear_outcome, true_h, true_pi, beta_var, rho, id))
+# Parameter
+  # FVE:
+  # FVE coverage:
+  # PNN:
+  # PNN coverage:
+  # MAE:
+  # FDR:
+  # sensitivity:
+# Model
+  # VI
+  # MCMC
+  # Lasso
+  # Ridge
+```
+
+Real X
+```{r}
+sim_result = read_csv('../real_data_sim_plot/result.csv')
+chun_result = read_csv('../real_data_sim_plot/chun_results.csv')
+sim_result = bind_cols(sim_result,chun_result)
+```
+
+
+Clean data 
+```{r}
+df_plot = df_sim_result %>% 
+  mutate(FVE_ZIV = mean_h_est,
+         FVE_ZIM = mean_h_mcmc,
+         PNN_ZIV = global_pi,
+         PNN_ZIM = global_pi_mcmc,
+         MAE_ZIV = mae_latent,
+         MAE_LASSO = mae_lasso,
+         MAE_RIDGE = mae_ridge,
+         MAE_GCTA = mae_gcta,
+         FVE_GCTA = FVE_gcta,
+         `FVE_GCTA\npositive` = FVE_gcta_non_truncated,
+         LogTime_ZIV = log(total_time_VI),
+         LogTime_ZIM = log(total_time_MCMC),
+         LogTime_GCTA = log(total_time_GCTA),
+         `FVE coverage_ZIV` = h_est_upper > true_h & h_est_lower < true_h,
+         `FVE coverage_ZIM` = up_h_mcmc > true_h & low_h_mcmc < true_h,
+         `FVE CI range_ZIV` = h_est_upper-h_est_lower,
+         `FVE CI range_ZIM` = up_h_mcmc-low_h_mcmc,
+         `PNN coverage_ZIV` = global_pi_upper_1 > true_pi & global_pi_lower_1 < true_pi,
+         `PNN coverage_ZIM` = up_global_pi_mcmc > true_pi & low_global_pi_mcmc < true_pi,
+         `PNN CI range_ZIV` = global_pi_upper_1-global_pi_lower_1,
+         `PNN CI range_ZIM` = up_global_pi_mcmc-low_global_pi_mcmc,
+         `Sensitivity: 1.00*pi_ZIM` = sensitivity_100_mcmc,
+         `Sensitivity: 1.00*pi_ZIV` = sensitivity_100,
+         `Sensitivity: 0.50*pi_ZIM` = sensitivity_50_mcmc,
+         `Sensitivity: 0.50*pi_ZIV` = sensitivity_50,
+         `Sensitivity: 0.25*pi_ZIM` = sensitivity_25_mcmc,
+         `Sensitivity: 0.25*pi_ZIV` = sensitivity_25,
+         `FDR: 1.00*pi_ZIM` = sensitivity_100_mcmc,
+         `FDR: 1.00*pi_ZIV` = sensitivity_100,
+         `FDR: 0.50*pi_ZIM` = FDR_50_mcmc,
+         `FDR: 0.50*pi_ZIV` = FDR_50,
+         `FDR: 0.25*pi_ZIM` = FDR_25_mcmc,
+         `FDR: 0.25*pi_ZIV` = FDR_25,
+  ) %>% 
+  select(n, `True FVE` = true_h, `True PNN` = true_pi, `outcome` = linear_outcome,
+         FVE_GCTA, FVE_ZIV,FVE_ZIM,PNN_ZIV,PNN_ZIM,MAE_ZIV,MAE_LASSO,MAE_RIDGE,`FVE coverage_ZIV`,
+         `FVE coverage_ZIM`,`PNN coverage_ZIV` ,`PNN coverage_ZIM`, LogTime_ZIV,LogTime_ZIM,LogTime_GCTA,
+         `FVE CI range_ZIV`, `FVE CI range_ZIM`, `PNN CI range_ZIV`,`PNN CI range_ZIM`,
+         `Sensitivity: 1.00*pi_ZIM`,`Sensitivity: 1.00*pi_ZIV`,
+         `Sensitivity: 0.50*pi_ZIM`,`Sensitivity: 0.50*pi_ZIV`,
+         `Sensitivity: 0.25*pi_ZIM`,`Sensitivity: 0.25*pi_ZIV`,
+         `FDR: 1.00*pi_ZIM`,`FDR: 1.00*pi_ZIV`,`FDR: 0.50*pi_ZIM`,
+         `FDR: 0.50*pi_ZIV`,`FDR: 0.25*pi_ZIM`,`FDR: 0.25*pi_ZIV`,`FVE_GCTA\npositive`
+  ) %>% 
+  pivot_longer(cols = -c(n, `True FVE`, `True PNN`, `outcome` ),
+               names_to = c("Parameter", "Model"),
+               names_sep = "_",
+               values_to = "Estimate"
+  ) %>% 
+  mutate(`True value` = case_when(
+    grepl("FVE", Parameter) ~ `True FVE`,
+    grepl("PNN", Parameter) ~ `True PNN`,
+    T ~ NA
+  )
+  ) %>% 
+  mutate(n = factor(n),
+         outcome = ifelse(outcome == T, "Linear", "Truncated"),
+         `True FVE` = paste0("True FVE = ",`True FVE`),
+         Parameter = fct_relevel(Parameter, "FVE", "PNN", "MAE", "LogTime",
+                                                  "FVE coverage", "FVE CI range",
+                                                  "PNN coverage","PNN CI range"),
+         Model = factor(Model, levels = c("ZIV", "ZIM", "GCTA", "GCTA\npositive","LASSO", "RIDGE"))
+         ) 
+
+write.csv(df_plot, file = "./cleaned_data/sim_X_main_data.csv")
+
+df_plot_real_X = sim_result %>% 
+  mutate(FVE_ZIV = mean_h_est,
+         PNN_ZIV = global_pi,
+         MAE_ZIV = mae_latent,
+         MAE_LASSO = mae_lasso,
+         MAE_RIDGE = mae_ridge,
+         MAE_GCTA = mae,
+         FVE_GCTA = h2,
+         `FVE coverage_ZIV` = h_est_upper > true_h & h_est_lower < true_h,
+         `FVE CI range_ZIV` = h_est_upper-h_est_lower,
+         `PNN coverage_ZIV` = global_pi_upper > true_pi & global_pi_lower < true_pi,
+         `PNN CI range_ZIV` = global_pi_upper-global_pi_lower,
+  ) %>% 
+  select(`True FVE` = true_h, `True PNN` = true_pi, 
+         FVE_GCTA, FVE_ZIV,PNN_ZIV,MAE_ZIV,MAE_LASSO,MAE_RIDGE,`FVE coverage_ZIV`,
+         `PNN coverage_ZIV` ,MAE_GCTA,
+         `FVE CI range_ZIV`, `PNN CI range_ZIV`,
+  ) %>% 
+  pivot_longer(cols = -c(`True FVE`, `True PNN` ),
+               names_to = c("Parameter", "Model"),
+               names_sep = "_",
+               values_to = "Estimate"
+  ) %>% 
+  mutate(`True value` = case_when(
+    grepl("FVE", Parameter) ~ `True FVE`,
+    grepl("PNN", Parameter) ~ `True PNN`,
+    T ~ NA
+  )
+  ) %>% 
+  mutate(`True PNN` = factor(`True PNN`),
+         `True FVE` = paste0("True FVE = ",`True FVE`),
+         Parameter = fct_relevel(Parameter, "FVE", "PNN", "MAE", 
+                                                  "FVE coverage", "FVE CI range",
+                                                  "PNN coverage","PNN CI range"),
+         Model = factor(Model, levels = c("ZIV", "GCTA","LASSO", "RIDGE"))
+         ) 
+write.csv(df_plot_real_X, file = "./cleaned_data/real_X_main_data.csv")
+
+df_ss = read_csv('../real_data_sim_plot/result_real_X.csv') %>% 
+  mutate(FVE_ZIV = mean_h_est,
+         PNN_ZIV = global_pi,
+         MAE_ZIV = mae_latent,
+         MAE_LASSO = mae_lasso,
+         MAE_RIDGE = mae_ridge,
+         `FVE coverage_ZIV` = h_est_upper > true_h & h_est_lower < true_h,
+         `FVE CI range_ZIV` = h_est_upper-h_est_lower,
+         `PNN coverage_ZIV` = global_pi_upper > true_pi & global_pi_lower < true_pi,
+         `PNN CI range_ZIV` = global_pi_upper-global_pi_lower,
+         `Sensitivity: 1.00*pi_ZIV` = sensitivity_100,
+         `Sensitivity: 0.50*pi_ZIV` = sensitivity_50,
+         `Sensitivity: 0.25*pi_ZIV` = sensitivity_25,
+         `FDR: 1.00*pi_ZIV` = sensitivity_100,
+         `FDR: 0.50*pi_ZIV` = FDR_50,
+         `FDR: 0.25*pi_ZIV` = FDR_25,
+  ) %>% 
+  select(`True FVE` = true_h, `True PNN` = true_pi, 
+         FVE_ZIV,PNN_ZIV,MAE_ZIV,MAE_LASSO,MAE_RIDGE,`FVE coverage_ZIV`,
+         `PNN coverage_ZIV` ,
+         `Sensitivity: 1.00*pi_ZIV`,`Sensitivity: 0.50*pi_ZIV`,
+         `Sensitivity: 0.25*pi_ZIV`,`FDR: 1.00*pi_ZIV`,
+         `FDR: 0.50*pi_ZIV`,`FDR: 0.25*pi_ZIV`,
+         `FVE CI range_ZIV`, `PNN CI range_ZIV`,
+  ) %>% 
+  pivot_longer(cols = -c(`True FVE`, `True PNN` ),
+               names_to = c("Parameter", "Model"),
+               names_sep = "_",
+               values_to = "Estimate"
+  ) %>% 
+  mutate(`True value` = case_when(
+    grepl("FVE", Parameter) ~ `True FVE`,
+    grepl("PNN", Parameter) ~ `True PNN`,
+    T ~ NA
+  )
+  ) %>% 
+  mutate(`True PNN` = paste0( "PNN = ",factor(`True PNN`)),
+         #`True FVE` = paste0("FVE = ",`True FVE`),
+         Parameter = fct_relevel(Parameter, "FVE", "PNN", "MAE", 
+                                                  "FVE coverage", "FVE CI range",
+                                                  "PNN coverage","PNN CI range"),
+         Model = factor(Model, levels = c("ZIV", "GCTA","LASSO", "RIDGE"))
+         ) 
+
+write.csv(df_ss, file = "./cleaned_data/real_X_sensit_FDR_data.csv")
+```
+
+```{r}
+colnames(df_plot)
+```
+
+
+# Plotting for simulated X
+
+## Main simulation plot
+```{r fig.height=10, fig.width=15}
+default_color_palette <- hue_pal()
+colors = default_color_palette(6)
+
+main_p_sim_X = df_plot %>% 
+  filter(!grepl("coverage", Parameter),
+         !grepl("range", Parameter),
+         !grepl("Sensitivity", Parameter),
+         !grepl("FDR", Parameter),
+         `True PNN` == 0.1, 
+         `True FVE`== "True FVE = 0.5"
+         ) %>% 
+  group_by(Parameter, Model, outcome, `True FVE`, `True PNN`, n, `True value`) %>% 
+  summarise(Est = mean(Estimate), SD = sd(Estimate) ) %>% 
+  ggplot(aes(x = n, y = Est, fill = Model)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(aes(ymin = Est - SD, ymax = Est + SD ),position = position_dodge(width = 0.9), width = .2) +
+  #geom_boxplot(outlier.shape = NA)+
+  geom_hline(aes(yintercept = `True value`,linetype = "True value"))+
+  facet_grid(Parameter~outcome, scale = "free")+
+  scale_linetype_manual(values = c( "True value" = "dashed"), name = "")+
+  theme_bw()+
+  theme(
+    axis.text.x = element_text(size = 12), # X-axis labels
+    axis.text.y = element_text(size = 12), # Y-axis labels
+    axis.title.x = element_text(size = 14, face = "bold"), # X-axis title
+    strip.text.x = element_text(size = 14, face = "bold"), 
+    axis.title.y = element_blank(),#element_text(size = 14, face = "bold"), # Y-axis title
+    strip.text.y = element_text(size = 14, face = "bold"), # Customize vertical facet labels if applicable
+    plot.title =  element_text(size = 15, face = "bold"),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 12, face = "bold"),
+    legend.margin = margin(t = 0, r = 0, b = 0, l = -1, unit = "mm"),
+    # Adjust the spacing between legend box and plot
+    legend.box.margin = margin(t = 0, r = 0, b = 0, l = -1, unit = "mm"),
+  )+
+  labs(title = "A. Simulated X with True FVE = 0.5 and PNN = 0.1",y = "Value",x = "Number of Observations")
+
+main_p_real_X = df_plot_real_X %>% 
+  filter(!grepl("coverage", Parameter),
+         !grepl("range", Parameter)
+  ) %>% 
+  group_by(Parameter, Model, `True FVE`, `True PNN`, `True value`) %>% 
+  summarise(Est = mean(Estimate), SD = sd(Estimate) ) %>% 
+  ungroup() %>% 
+  mutate(xstart = case_when(
+    `True PNN` == "0.005"~0.5,
+    `True PNN` == "0.01"~1.5,
+    `True PNN` == "0.05"~2.5,
+    `True PNN` == "0.1"~3.5
+  ),
+  xend = case_when(
+    `True PNN` == "0.005"~1.5,
+    `True PNN` == "0.01"~2.5,
+    `True PNN` == "0.05"~3.5,
+    `True PNN` == "0.1"~4.5,
+  )
+  ) %>% 
+  ggplot(aes(x = `True PNN`, y = Est, fill = Model)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(aes(ymin = Est - SD, ymax = Est + SD ),position = position_dodge(width = 0.9), width = .2) +
+  #geom_boxplot(outlier.shape = NA)+
+    geom_segment(aes(y = `True value`,yend = `True value`, x = xstart, xend = xend,linetype = "True value"))+
+  facet_grid(Parameter~`True FVE`, scale = "free")+
+  scale_linetype_manual(values = c( "True value" = "dashed"), name = "")+
+  scale_fill_manual(values = c("ZIV" = colors[1], "GCTA" = colors[3], "LASSO" = colors[5], "RIDGE" = colors[6])) +
+  theme_bw()+
+  theme(
+    axis.text.x = element_text(size = 12), # X-axis labels
+    axis.text.y = element_text(size = 12), # Y-axis labels
+    axis.title.x = element_text(size = 14, face = "bold"), # X-axis title
+    axis.title.y = element_blank(),#element_text(size = 14, face = "bold"), # Y-axis title
+    strip.text.x = element_text(size = 14, face = "bold"), 
+    strip.text.y = element_text(size = 14, face = "bold"), # Customize vertical facet labels if applicable
+    plot.title =  element_text(size = 15, face = "bold"),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 9, face = "bold"),
+    legend.margin = margin(t = 0, r = 0, b = 0, l = -1, unit = "mm"),
+    # Adjust the spacing between legend box and plot
+    legend.box.margin = margin(t = 0, r = 0, b = 0, l = -1, unit = "mm"),
+    legend.position = "none"
+  )+
+  labs(title = "B. tfMRI design matrix with 8893 subjects and 885 features")
+
+main_p_sim_X+main_p_real_X+plot_layout(guides = 'collect')
+ggsave("sim_main_result.png")
+```
+
+## Coverage rate
+```{r fig.height=8, fig.width=15}
+default_color_palette <- hue_pal()
+colors = default_color_palette(6)
+
+
+#######
+# Sim X
+#######
+df_coverage = df_plot %>%
+  filter(grepl("coverage", Parameter),
+         `True PNN` == 0.1,
+         `True FVE`== "True FVE = 0.5"
+         ) %>%
+  group_by(Parameter, Model, outcome, `True value`, n) %>%
+  summarise(Est = mean(Estimate), SD = sd(Estimate))# %>%
+  #mutate(Parameter = str_split(Parameter, pattern = " ", simplify = TRUE)[,1])
+
+df_range = df_plot %>%
+  filter(grepl("range", Parameter),
+         `True PNN` == 0.1,
+         `True FVE`== "True FVE = 0.5"
+         ) %>%
+  group_by(Parameter, Model, outcome, `True value`, n) %>%
+  summarise(Est = mean(Estimate), SD = sd(Estimate)) #%>%
+  #mutate(Parameter = str_split(Parameter, pattern = " ", simplify = TRUE)[,1])
+
+
+
+p_coverage_sim_X = ggplot(data = df_coverage) +
+  geom_point(aes(x = n, y = Est,group = Model, color = Model),size= 3, data = df_coverage) +
+  geom_line(aes(x = n, y = Est,group = Model, color = Model),size =1, data = df_coverage)+
+  # geom_bar(aes(x = n, y = Est, fill = Model),stat = "identity", position = "dodge",alpha = 0.8, data = df_range)+
+  # geom_errorbar(aes(x = n, y = Est,fill = Model,ymin = Est - SD, ymax = Est + SD ),
+  #               position = position_dodge(width = 0.9),
+  #               width = .2, data =df_range) +
+  geom_hline(aes(yintercept = 0.95,linetype = "95%"))+
+  facet_nested(Parameter~outcome, scale = "free")+
+  theme_bw()+
+  scale_linetype_manual(values = c( "95%" = "dashed"), name = "")+
+  scale_color_manual(values = c("ZIV" = colors[1], "ZIM" = colors[2]), name = "Coverage")+
+  scale_fill_manual(values = c("ZIV" = colors[1], "ZIM" = colors[2]), name = "CI Range on\noriginal scale") +
+  scale_y_continuous(limits =c(0.1,1))+
+  theme(
+    axis.text.x = element_text(size = 12), # X-axis labels
+    axis.text.y = element_text(size = 12), # Y-axis labels
+    axis.title.x = element_blank(),#element_text(size = 14, face = "bold"), # X-axis title
+    strip.text.x = element_text(size = 14, face = "bold"), 
+    axis.title.y = element_blank(),#element_text(size = 14, face = "bold"), # Y-axis title
+    strip.text.y = element_text(size = 14, face = "bold"), # Customize vertical facet labels if applicable
+    plot.title =  element_text(size = 15, face = "bold"),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 9, face = "bold"),
+    legend.margin = margin(t = 0, r = 0, b = 0, l = -1, unit = "mm"),
+    # Adjust the spacing between legend box and plot
+    legend.box.margin = margin(t = 0, r = 0, b = 0, l = -1, unit = "mm"),
+  )+
+  labs(title = "A. Sim X: credible interval coverage rate and range",y = "Value")
+
+p_range_sim_X = ggplot(data = df_range) +
+  # geom_point(aes(x = n, y = Est,group = Model, color = Model),size= 3, data = df_coverage) +
+  # geom_line(aes(x = n, y = Est,group = Model, color = Model),size =1, data = df_coverage)+
+  geom_bar(aes(x = n, y = Est, fill = Model),stat = "identity", position = "dodge",alpha = 0.8, data = df_range)+
+  geom_errorbar(aes(x = n, y = Est,fill = Model,ymin = Est - SD, ymax = Est + SD ),
+                position = position_dodge(width = 0.9),
+                width = .2, data =df_range) +
+  facet_nested(Parameter~outcome)+
+  scale_y_continuous(limits = c(0,0.7))+
+  theme_bw()+
+  scale_color_manual(values = c("ZIV" = colors[1], "ZIM" = colors[2]), name = "Coverage")+
+  scale_fill_manual(values = c("ZIV" = colors[1], "ZIM" = colors[2]), name = "CI Range on\noriginal scale") +
+  theme(
+    axis.text.x = element_text(size = 12), # X-axis labels
+    axis.text.y = element_text(size = 12), # Y-axis labels
+    axis.title.x = element_text(size = 14, face = "bold"), # X-axis title
+    strip.text.x = element_text(size = 14, face = "bold"), 
+    axis.title.y = element_blank(),#element_text(size = 14, face = "bold"), # Y-axis title
+    strip.text.y = element_text(size = 14, face = "bold"), # Customize vertical facet labels if applicable
+    plot.title =  element_text(size = 15, face = "bold"),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 9, face = "bold"),
+    legend.margin = margin(t = 0, r = 0, b = 0, l = -1, unit = "mm"),
+    # Adjust the spacing between legend box and plot
+    legend.box.margin = margin(t = 0, r = 0, b = 0, l = -1, unit = "mm"),
+  )+
+  labs(y = "Value",x = "Number of Observations")
+
+#p_coverage_sim_X/p_range_sim_X+plot_layout(guides = 'collect')
+#######
+# Real X
+#######
+df_coverage = df_plot_real_X %>% 
+  filter(grepl("coverage", Parameter)
+         ) %>% 
+  group_by(Parameter, Model, `True PNN`,  `True FVE`) %>% 
+  summarise(Est = mean(Estimate), SD = sd(Estimate)) 
+
+df_range = df_plot_real_X %>% 
+  filter(grepl("range", Parameter)
+         ) %>% 
+  group_by(Parameter, Model, `True PNN`,  `True FVE`) %>% 
+  summarise(Est = mean(Estimate), SD = sd(Estimate)) 
+
+p_coverage_real_X = ggplot(data = df_coverage) +
+  geom_point(aes(x = `True PNN`, y = Est,group = Model, color = Model),size= 3, data = df_coverage) +
+  geom_line(aes(x = `True PNN`, y = Est,group = Model, color = Model),size =1, data = df_coverage)+
+  # geom_bar(aes(x = n, y = Est, fill = Model),stat = "identity", position = "dodge",alpha = 0.8, data = df_range)+
+  # geom_errorbar(aes(x = n, y = Est,fill = Model,ymin = Est - SD, ymax = Est + SD ),
+  #               position = position_dodge(width = 0.9),
+  #               width = .2, data =df_range) +
+  geom_hline(aes(yintercept = 0.95,linetype = "95%"))+
+  facet_nested(Parameter~`True FVE`, scale = "free")+
+  theme_bw()+
+  scale_linetype_manual(values = c( "95%" = "dashed"), name = "")+
+  scale_color_manual(values = c("ZIV" = colors[1]), name = "Coverage")+
+  scale_fill_manual(values = c("ZIV" = colors[1]), name = "CI Range on\noriginal scale") +
+  scale_y_continuous(limits =c(0.1,1))+
+  theme(
+    axis.text.x = element_text(size = 12), # X-axis labels
+    axis.text.y = element_text(size = 12), # Y-axis labels
+    axis.title.x = element_blank(),#element_text(size = 14, face = "bold"), # X-axis title
+    strip.text.x = element_text(size = 14, face = "bold"), 
+    axis.title.y = element_blank(),#element_text(size = 14, face = "bold"), # Y-axis title
+    strip.text.y = element_text(size = 14, face = "bold"), # Customize vertical facet labels if applicable
+    plot.title =  element_text(size = 15, face = "bold"),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 9, face = "bold"),
+    legend.position = "none",
+    legend.margin = margin(t = 0, r = 0, b = 0, l = -1, unit = "mm"),
+    # Adjust the spacing between legend box and plot
+    legend.box.margin = margin(t = 0, r = 0, b = 0, l = -1, unit = "mm"),
+  )+
+  labs(title = "B. Real X: credible interval coverage rate and range",y = "Value")
+
+p_range_real_X = ggplot(data = df_range) +
+  # geom_point(aes(x = n, y = Est,group = Model, color = Model),size= 3, data = df_coverage) +
+  # geom_line(aes(x = n, y = Est,group = Model, color = Model),size =1, data = df_coverage)+
+  geom_bar(aes(x = `True PNN`, y = Est, fill = Model),stat = "identity", position = "dodge",alpha = 0.8, data = df_range)+
+  geom_errorbar(aes(x = `True PNN`, y = Est,fill = Model,ymin = Est - SD, ymax = Est + SD ),
+                position = position_dodge(width = 0.9),
+                width = .2, data =df_range) +
+  facet_nested(Parameter~`True FVE`)+
+  theme_bw()+
+  scale_y_continuous(limits = c(0,0.7))+
+  scale_color_manual(values = c("ZIV" = colors[1]), name = "Coverage")+
+  scale_fill_manual(values = c("ZIV" = colors[1]), name = "CI Range on\noriginal scale") +
+  theme(
+    axis.text.x = element_text(size = 12), # X-axis labels
+    axis.text.y = element_text(size = 12), # Y-axis labels
+    axis.title.x = element_text(size = 14, face = "bold"), # X-axis title
+    strip.text.x = element_text(size = 14, face = "bold"), 
+    axis.title.y = element_blank(),#element_text(size = 14, face = "bold"), # Y-axis title
+    strip.text.y = element_text(size = 14, face = "bold"), # Customize vertical facet labels if applicable
+    plot.title =  element_text(size = 15, face = "bold"),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 9, face = "bold"),
+    legend.margin = margin(t = 0, r = 0, b = 0, l = -1, unit = "mm"),
+    legend.position = "none",
+    # Adjust the spacing between legend box and plot
+    legend.box.margin = margin(t = 0, r = 0, b = 0, l = -1, unit = "mm"),
+  )+
+  labs(y = "Value",x = "True PNN")
+
+((p_coverage_sim_X/p_range_sim_X)|
+  (p_coverage_real_X/p_range_real_X))+plot_layout(guides = 'collect')
+ggsave("sim_cover_range_result.png")
+```
+
+## Sensitivity and specifity
+```{r fig.height=6, fig.width=15}
+
+####
+# Sim X
+####
+p_ss_sim_X = df_plot %>% 
+  filter(grepl("FDR", Parameter)|grepl("Sensitivity", Parameter),
+         `True PNN` == 0.1, 
+         `True FVE`== "True FVE = 0.5",
+         n!="160" &  n!="320"
+         ) %>% 
+  mutate(Para = str_split(Parameter, pattern = ":", simplify = TRUE)[,1],
+         `Percentage of estimated Pi` = str_split(Parameter, pattern = "[:*]", simplify = TRUE)[,2]
+         ) %>% 
+  group_by(Para, `Percentage of estimated Pi`, Model, outcome, `True FVE`, `True PNN`, n, `True value`) %>% 
+  summarise(Est = mean(Estimate), SD = sd(Estimate) ) %>% 
+  ungroup() %>% 
+  mutate(Para = ifelse(Para == "FDR", "1-FDR", Para),
+         Est = ifelse(Para == "1-FDR", 1-Est, Est)
+         ) %>% 
+  ggplot(aes(x =  `Percentage of estimated Pi`, y = Est, fill = Model)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(aes(ymin = Est - SD, ymax = Est + SD ),position = position_dodge(width = 0.9), width = .2) +
+  #geom_boxplot(outlier.shape = NA)+
+  scale_fill_manual(values = c("ZIV" = colors[1], "ZIM" = colors[2]))+
+  geom_hline(aes(yintercept = 1,linetype = "100%"))+
+  scale_linetype_manual(values = c( "100%" = "dashed"), name = "")+
+  scale_y_continuous(limits = c(-0.05,1.1), breaks = c(0,0.5,1), labels = c("0%", "50%", "100%"))+
+  scale_x_discrete(labels = c("25%", "50%", "100%"))+
+  facet_nested(Para~outcome+n, scale = "free")+
+  theme_bw()+
+  theme(
+    axis.text.x = element_text(size = 12, angle =90), # X-axis labels
+    axis.text.y = element_text(size = 12), # Y-axis labels
+    axis.title.x = element_text(size = 14, face = "bold"), # X-axis title
+    strip.text.x = element_text(size = 14, face = "bold"), 
+    axis.title.y = element_blank(),#element_text(size = 14, face = "bold"), # Y-axis title
+    strip.text.y = element_text(size = 14, face = "bold"), # Customize vertical facet labels if applicable
+    plot.title =  element_text(size = 15, face = "bold"),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 9, face = "bold"),
+    legend.margin = margin(t = 0, r = 0, b = 0, l = -1, unit = "mm"),
+    # Adjust the spacing between legend box and plot
+    legend.box.margin = margin(t = 0, r = 0, b = 0, l = -1, unit = "mm"),
+  )+
+  labs(title = "A. Sim X:  feature selection Sensitivity and 1-FDR",y = "Value", x = "Top Percent*pi of features selected")
+
+
+####
+# Real X
+####
+
+p_ss_real_X = df_ss %>% 
+  filter(grepl("FDR", Parameter)|grepl("Sensitivity", Parameter)
+         ) %>% 
+  mutate(Para = str_split(Parameter, pattern = ":", simplify = TRUE)[,1],
+         `Percentage of estimated Pi` = str_split(Parameter, pattern = "[:*]", simplify = TRUE)[,2]
+         ) %>% 
+  group_by(Para, `Percentage of estimated Pi`, Model, `True FVE`, `True PNN`,`True value`) %>% 
+  summarise(Est = mean(Estimate, na.rm = T), SD = sd(Estimate, na.rm = T) ) %>% 
+  ungroup() %>% 
+  mutate(Para = ifelse(Para == "FDR", "1-FDR", Para),
+         Est = ifelse(Para == "1-FDR", 1-Est, Est)
+         ) %>% 
+  ggplot(aes(x =  `Percentage of estimated Pi`, y = Est, fill = Model)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(aes(ymin = Est - SD, ymax = Est + SD ),position = position_dodge(width = 0.9), width = .2) +
+  #geom_boxplot(outlier.shape = NA)+
+  geom_hline(aes(yintercept = 1,linetype = "100%"))+
+  scale_linetype_manual(values = c( "100%" = "dashed"), name = "")+
+  scale_y_continuous(limits = c(-0.05,1.1), breaks = c(0,0.5,1), labels = c("0%", "50%", "100%"))+
+  scale_x_discrete(labels = c("25%", "50%", "100%"))+
+  scale_fill_manual(values = c("ZIV" = colors[1], "ZIM" = colors[2]))+
+  facet_nested(Para~`True PNN`+`True FVE`, scale = "free")+
+  theme_bw()+
+  theme(
+    axis.text.x = element_text(size = 12, angle =90), # X-axis labels
+    axis.text.y = element_text(size = 12), # Y-axis labels
+    axis.title.x = element_text(size = 14, face = "bold"), # X-axis title
+    axis.title.y = element_blank(),#element_text(size = 14, face = "bold"), # Y-axis title
+    strip.text.x = element_text(size = 14, face = "bold"), 
+    strip.text.y = element_text(size = 14, face = "bold"), # Customize vertical facet labels if applicable
+    plot.title =  element_text(size = 15, face = "bold"),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 9, face = "bold"),
+    legend.margin = margin(t = 0, r = 0, b = 0, l = -1, unit = "mm"),
+    # Adjust the spacing between legend box and plot
+    legend.box.margin = margin(t = 0, r = 0, b = 0, l = -1, unit = "mm"),
+    legend.position = "none"
+  )+
+  labs(title = "B. Real X: feature selection Sensitivity and 1-FDR", x = "Top Percent*pi of features selected")
+
+p_ss_sim_X+p_ss_real_X+plot_layout(guides = 'collect')
+#p_ss_sim_X+p_ss_real_X+plot_layout(guides = 'collect')
+ggsave("sim_feature_selection_result.png")
+```
+
+
+
