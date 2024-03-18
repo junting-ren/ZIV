@@ -12,3 +12,4 @@ application/
 .Rproj.user
 functions/__pycache__/data_sim.cpython-37.pyc
 *.pyc
+BLUP/
